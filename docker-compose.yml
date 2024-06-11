@@ -26,11 +26,12 @@ services:
       - DRUPAL_SITE_NAME=Record Cleaner UI
       - DRUPAL_USERNAME=admin
       - DRUPAL_PASSWORD=password
-      - DRUPAL_DATA_TO_PERSIST= sites/ themes/ profiles/ modules/contrib/
-      #- DRUPAL_PROFILE=minimal
+      - DRUPAL_DATA_TO_PERSIST=sites/ themes/ profiles/ modules/contrib/
+      - DRUPAL_ENABLE_MODULES=record_cleaner
     volumes:
       - 'drupal:/bitnami/drupal'
-      - '.:/opt/bitnami/drupal/modules/custom'
+      - './record_cleaner:/opt/bitnami/drupal/modules/custom/record_cleaner'
+      - './php-conf.d/99-xdebug.ini:/opt/bitnami/php/etc/conf.d/99-xdebug.ini'
     depends_on:
       - mariadb
 
