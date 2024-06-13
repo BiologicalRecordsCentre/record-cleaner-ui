@@ -1,0 +1,4 @@
+services:
+  record_cleaner.record_cleaner_service:
+    class: Drupal\record_cleaner\Service\RecordCleanerService
+    arguments: []

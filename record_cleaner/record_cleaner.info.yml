@@ -1,0 +1,6 @@
+name: Record Cleaner
+type: module
+description: Provides a user interface to the record cleaner web service.
+package: Custom
+
+core_version_requirement: ^9.4 || ^10

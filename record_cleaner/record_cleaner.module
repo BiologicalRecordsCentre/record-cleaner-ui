@@ -1,0 +1,17 @@
+<?php
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function record_cleaner_help($route_name, RouteMatchInterface $route_match) {
+    switch ($route_name) {
+        case 'help_page.record_cleaner':
+            $output = '';
+            $output .= '<h2>' . t("Record Cleaner") . '</h2>';
+            $output .= '<p>' . t("Provides a user interface to the record 
+            cleaner web service.") . '</p>';
+            return $output;
+    }
+}

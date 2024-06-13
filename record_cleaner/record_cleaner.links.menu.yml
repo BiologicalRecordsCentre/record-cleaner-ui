@@ -1,0 +1,5 @@
+record_cleaner.form:
+  title: "Record Cleaner"
+  description: "Settings for Record Cleaner service."
+  route_name: record_cleaner.form
+  parent: "system.admin_config_services"

@@ -1,0 +1,15 @@
+record_cleaner.status:
+  path: '/record_cleaner/status'
+  defaults:
+    _controller: '\Drupal\record_cleaner\Controller\RecordCleanerController::status'
+    _title: 'Record Cleaner Status'
+  requirements:
+    _permission: 'use record cleaner'
+
+record_cleaner.form:
+  path: '/admin/config/services/record_cleaner'
+  defaults:
+    _form: '\Drupal\record_cleaner\Form\RecordCleanerForm'
+    _title: 'Record Cleaner Settings'
+  requirements:
+    _permission: 'administer site configuration'
