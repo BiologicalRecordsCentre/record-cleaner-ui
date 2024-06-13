@@ -11,7 +11,7 @@ services:
       - 'mariadb:/bitnami/mariadb'
 
   drupal:
-    image: docker.io/bitnami/drupal:10
+    build: .
     user: root
     ports:
       - '8080:8080'
