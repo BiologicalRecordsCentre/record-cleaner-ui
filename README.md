@@ -16,7 +16,7 @@ After installing the module,
 Use
 ---
 
-Visit the `/record_cleaner` page.
+Visit the `/admin/help/record_cleaner` page.
 
 Development
 -----------

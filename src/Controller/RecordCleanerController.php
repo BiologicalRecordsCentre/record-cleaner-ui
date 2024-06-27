@@ -20,6 +20,16 @@ class RecordCleanerController {
   protected $element = [];
 
   /**
+   * Returns an overview page.
+   * This callback is linked to the path /record_cleaner
+   */
+  public function overview() {
+    $RecordCleanerService = \Drupal::service('record_cleaner.record_cleaner_service');
+    $element = $RecordCleanerService->overview();
+    return $element;
+  }
+
+  /**
    * Returns a status page.
    * This callback is linked to the path /record_cleaner/status
    */

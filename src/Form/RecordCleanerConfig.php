@@ -8,10 +8,10 @@ use Drupal\Core\Form\FormStateInterface;
 /**
  * Module configuration form.
  */
-class RecordCleanerForm extends ConfigFormBase {
+class RecordCleanerConfig extends ConfigFormBase {
 
     public function getFormId() {
-        return 'record_cleaner_form';
+        return 'record_cleaner_config';
     }
 
     public function buildForm(array $form, FormStateInterface $form_state) {
@@ -23,22 +23,22 @@ class RecordCleanerForm extends ConfigFormBase {
       // Add form elements.
       $form['service_url'] = [
         '#type' => 'textfield',
-        '#title' => t('Service URL'),
+        '#title' => $this->t('Service URL'),
         '#default_value' => $config->get('record_cleaner.service_url'),
-        '#description' => t('The base URL of the record cleaner service.'),
+        '#description' => $this->t('The base URL of the record cleaner service.'),
         '#required' => TRUE,
       ];
       $form['username'] = [
         '#type' => 'textfield',
-        '#title' => t('Username'),
+        '#title' => $this->t('Username'),
         '#default_value' => $config->get('record_cleaner.username'),
-        '#description' => t('The username for your record cleaner account.'),
+        '#description' => $this->t('The username for your record cleaner account.'),
       ];
       $form['password'] = [
         '#type' => 'textfield',
-        '#title' => t('Password'),
+        '#title' => $this->t('Password'),
         '#default_value' => $config->get('record_cleaner.password'),
-        '#description' => t('The password for your record cleaner account.'),
+        '#description' => $this->t('The password for your record cleaner account.'),
       ];
 
       return $form;
@@ -48,7 +48,10 @@ class RecordCleanerForm extends ConfigFormBase {
     {
       // TODO implement validation
       if ($form_state->getValue('service_url') == NULL) {
-        $form_state->setErrorByName('service_url', t('The service URL is required.'));
+        $form_state->setErrorByName(
+          'service_url',
+          $this->t('The service URL is required.')
+        );
       }
     }
 

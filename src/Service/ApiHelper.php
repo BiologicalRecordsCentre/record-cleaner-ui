@@ -2,15 +2,40 @@
 
 /**
  * @file
- * Contains \Drupal\record_cleaner\Service\RecordCleanerService.
+ * Contains \Drupal\record_cleaner\Service\ApiHelper.
  */
 
 namespace Drupal\record_cleaner\Service;
 
+use Drupal\Core\Url;
+use Drupal\Core\Logger\LoggerChannelInterface;
+
 /**
  * Sevice layer for record cleaner.
  */
-class RecordCleanerService {
+class ApiHelper {
+  use \Drupal\Core\StringTranslation\StringTranslationTrait;
+
+  public function __construct(
+    protected LoggerChannelInterface $logger
+  )
+  {}
+
+  public function overview() {
+    $markup = "<p>";
+    $markup .= $this->t("<a href=':status'>Status</a>", [
+      ':status' => Url::fromRoute('record_cleaner.status')->toString(),
+    ]);
+    $markup .="</p>";
+
+    $element = [
+      '#type' => 'markup',
+      '#markup' => $markup,
+    ];
+    return $element;
+
+  }
+
   public function status() {
     // Obtain settings
     $config = \Drupal::config('record_cleaner.settings');
@@ -31,4 +56,5 @@ class RecordCleanerService {
     ];
     return $element;
   }
+
 }

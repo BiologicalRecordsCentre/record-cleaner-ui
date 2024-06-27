@@ -1,3 +1,11 @@
+record_cleaner:
+  path: '/record_cleaner'
+  defaults:
+    _controller: '\Drupal\record_cleaner\Controller\RecordCleanerController::overview'
+    _title: 'Record Cleaner'
+  requirements:
+    _permission: 'anonymous'
+
 record_cleaner.status:
   path: '/record_cleaner/status'
   defaults:
@@ -6,10 +14,18 @@ record_cleaner.status:
   requirements:
     _permission: 'use record cleaner'
 
-record_cleaner.form:
+record_cleaner.upload:
+  path: '/record_cleaner/upload'
+  defaults:
+    _form: '\Drupal\record_cleaner\Form\RecordCleanerUpload'
+    _title: 'Record Cleaner File Upload'
+  requirements:
+    _permission: 'use record cleaner'
+
+record_cleaner.config:
   path: '/admin/config/services/record_cleaner'
   defaults:
-    _form: '\Drupal\record_cleaner\Form\RecordCleanerForm'
+    _form: '\Drupal\record_cleaner\Form\RecordCleanerConfig'
     _title: 'Record Cleaner Settings'
   requirements:
     _permission: 'administer site configuration'

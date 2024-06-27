@@ -1,5 +1,17 @@
-record_cleaner.form:
+record_cleaner.config:
   title: "Record Cleaner"
   description: "Settings for Record Cleaner service."
-  route_name: record_cleaner.form
+  route_name: record_cleaner.config
   parent: "system.admin_config_services"
+
+record_cleaner:
+  title: "Record Cleaner"
+  description: "Overview of Record Cleaner."
+  route_name: record_cleaner
+  parent: "main"
+
+record_cleaner.status:
+  title: "Status"
+  description: "Status of Record Cleaner service."
+  route_name: record_cleaner.status
+  parent: "record_cleaner"

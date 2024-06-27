@@ -1,17 +1,73 @@
 <?php
 
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Url;
 
 /**
  * Implements hook_help().
  */
 function record_cleaner_help($route_name, RouteMatchInterface $route_match) {
-    switch ($route_name) {
-        case 'help_page.record_cleaner':
-            $output = '';
-            $output .= '<h2>' . t("Record Cleaner") . '</h2>';
-            $output .= '<p>' . t("Provides a user interface to the record 
-            cleaner web service.") . '</p>';
-            return $output;
+  $output = '';
+  switch ($route_name) {
+    case 'help.page.record_cleaner':
+      $output .= '<h2>' . t("Record Cleaner") . '</h2>';
+      $output .= '<h3>' . t("About") . '</h3>';
+
+      $output .= '<p>';
+      $output .= t("The Record Cleaner module allows users to upload CSV files
+containing biological records for validation and verification. By validation
+we mean ensuring that the data is in the correct format e.g that dates are
+recognisable. By verification we mean checking that the observation falls within
+the confines of a set of rules e.g. about where and when a species is found.
+
+The verification rules have been written and are maintained by experts in their
+field and are limited in scope to the British Isles.");
+      $output .= '</p>';
+
+      $output .= '<h3>' . t("Uses") . '</h3>';
+
+      $output .= '<h4>' . t("Service Status") . '</h4>';
+      $output .= '<p>';
+      $output .= t("The service <a href=':status'>status</a> page provides
+details of the current status of the service.", [
+        ':status' => Url::fromRoute('record_cleaner.status')->toString()
+      ]);
+      $output .= '</p>';
+
+      $output .= '<h4>' . t("File Upload") . '</h4>';
+      $output .= '<p>';
+      $output .= t("The <a href=':upload'>upload</a> page is where you upload
+your CSV file before verification.", [
+        ':status' => Url::fromRoute('record_cleaner.upload')->toString()
+      ]);
+      $output .= '</p>';
+
+      $output .= '<p>';
+      $output .= t("The CSV file must contain a header row with column names.
+Each row needs to contain at least the following columns: ");
+      $output .= '<ul>';
+
+      $output .= '<li><b>' . t("Observation date. ") . '</b>';
+      $output .= t("This can be a specific date, or a date range.
+<a href=:dates>Read more</a>.", [
+        ':dates' => Url::fromUri('https://github.com/BiologicalRecordsCentre/record-cleaner-service/blob/main/docs/valid_date.md')->toString()
+]);
+      $output . '</li>';
+
+      $output .= '<li><b>' . t("Taxon version key or taxon name. ") . '</b>';
+      $output .= t("This identifes the organism that was observed. A taxon
+version key (TVK) is unambiguous whereas you may need to clarify the exact
+meaning of a taxon name.");
+      $output . '</li>';
+
+      $output .= '<li><b>' . t("Spatial reference. ") . '</b>';
+      $output .= t("This is where you made the observation. It might be a grid
+reference or a latitude and longitude.");
+      $output . '</li>';
+
+      $output .= '</p>';
+
     }
+
+  return $output;
 }
