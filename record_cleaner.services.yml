@@ -1,21 +1,25 @@
 services:
   record_cleaner.logger_channel:
     parent: logger.channel_base
-    arguments: ['record_cleaner']
+    arguments:
+      - 'record_cleaner'
 
   record_cleaner.api_helper:
     class: Drupal\record_cleaner\Service\ApiHelper
-    arguments: ['@record_cleaner.logger_channel']
+    arguments:
+      - '@record_cleaner.logger_channel'
+      - '@config.factory'
+      - '@http_client_factory'
 
   record_cleaner.ui_helper:
     class: Drupal\record_cleaner\Service\UiHelper
-    arguments: ['@record_cleaner.logger_channel', '@messenger']
-    # arguments: ['@entity_type.manager', '@messenger']
-    # arguments: ['@file_example.state_helper', '@file_example.file_helper', '@file_example.session_helper_wrapper', '@messenger', '@file.repository', '@file_system', '@event_dispatcher']
+    arguments:
+      - '@record_cleaner.logger_channel'
+      - '@messenger'
 
   record_cleaner.csv_helper:
     class: Drupal\record_cleaner\Service\CsvHelper
     arguments:
       - '@record_cleaner.logger_channel'
-      - '@entity_type.manager'
       - '@stream_wrapper_manager'
+      - '@record_cleaner.api_helper'

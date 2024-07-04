@@ -1,3 +1,5 @@
 .vscode/
+private/
 vendor/
 web/
+composer.lock

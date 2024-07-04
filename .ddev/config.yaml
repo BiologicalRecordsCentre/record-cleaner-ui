@@ -168,9 +168,11 @@ corepack_enable: false
 # The host port binding for the ddev-dbserver can be explicitly specified. It is dynamic
 # unless explicitly specified.
 
-# mailpit_http_port: "8025"
+mailpit_http_port: "8027"
 # mailpit_https_port: "8026"
 # The Mailpit ports can be changed from the default 8025 and 8026
+# Done to avoid conflict with the Indicia mailhog port when running that
+# on the same host for testing.
 
 # host_mailpit_port: "8025"
 # The mailpit port is not normally bound on the host at all, instead being routed

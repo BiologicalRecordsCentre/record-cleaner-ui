@@ -3,6 +3,17 @@ Record Cleaner
 
 A Drupal module providing a user interface to the record cleaner service.
 
+Prerequisites
+-------------
+
+The module requires the private file system to be enabled. Depending on your
+hosting arrangement, this may already be set up. You can confirm this by
+inspecting the private file system path setting shown on the admin page at
+`admin/config/media/file-system`
+
+Refer to the [Drupal docs](https://www.drupal.org/docs/8/core/modules/file/overview#s-private-file-system-settings-in-drupal-8)
+if you need to configure this.
+
 Configuration
 -------------
 
@@ -34,6 +45,8 @@ run `ddev start`.
 Run `ddev poser`.
 
 Run `ddev symlink-project`.
+
+The two latter commands are courtesy of https://github.com/ddev/ddev-drupal-contrib
 
 For information on step debugging, see the
 [configuration instructions](https://ddev.readthedocs.io/en/latest/users/debugging-profiling/step-debugging/).

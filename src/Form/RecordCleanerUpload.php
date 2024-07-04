@@ -2,11 +2,15 @@
 
 namespace Drupal\record_cleaner\Form;
 
-use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\DependencyInjection\DependencySerializationTrait;
+use Drupal\Core\Entity\EntityTypeManager;
+use Drupal\Core\File\FileUrlGenerator;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
+use Drupal\Core\Session\AccountProxyInterface;
+use Drupal\Core\Url;
+use Drupal\file\Entity\File;
 use Drupal\record_cleaner\Service\CsvHelper;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -18,27 +22,31 @@ class RecordCleanerUpload extends FormBase {
   use DependencySerializationTrait;
 
   public $steps =  [
-    'upload', 'mapping', 'sref'
+    'upload', 'mapping', 'sref', 'additional', 'validate', 'verify'
   ];
 
   /**
    * Constructs a new FileExampleReadWriteForm object.
    *
-   * @param \Drupal\file_example\FileExampleStateHelper $stateHelper
-   *   The file example state helper.
    * @param \Drupal\record_cleaner\Service\CsvHelper $csvHelper
-   *   The record_cleaner submit handler helper.
-   * @param \Drupal\Core\File\FileSystemInterface $fileSystem
-   *   The file system.
+   *   The record_cleaner csv file service.
+   * @param \Drupal\Core\Logger\LoggerChannelInterface $logger
+   *   The logger service for logging messages.
+   * @param \Drupal\Core\Session\AccountProxyInterface $currentUser
+   *   The current user.
+   * @param \Drupal\Core\Entity\EntityTypeManager $entityTypeManager
+   *   The entity type manager service.
+   * @param \Drupal\Core\File\FileUrlGenerator $fileUrlGenerator
+   *   The file URL generator service.
    *
    * @see https://php.watch/versions/8.0/constructor-property-promotion
    */
   public function __construct(
-    // protected FileExampleStateHelper $stateHelper,
     protected CsvHelper $csvHelper,
     protected LoggerChannelInterface $logger,
-    protected AccountProxyInterface $currentUser
-    //protected FileSystemInterface $fileSystem
+    protected AccountProxyInterface $currentUser,
+    protected EntityTypeManager $entityTypeManager,
+    protected FileUrlGenerator $fileUrlGenerator,
   ) {
   }
 
@@ -50,6 +58,8 @@ class RecordCleanerUpload extends FormBase {
       $container->get('record_cleaner.csv_helper'),
       $container->get('record_cleaner.logger_channel'),
       $container->get('current_user'),
+      $container->get('entity_type.manager'),
+      $container->get('file_url_generator'),
     );
   }
 
@@ -81,6 +91,12 @@ class RecordCleanerUpload extends FormBase {
       case 'sref':
         return $this->buildSrefForm($form, $form_state);
         break;
+      case 'additional':
+        return $this->buildAdditionalForm($form, $form_state);
+        break;
+      case 'validate':
+        return $this->buildValidateForm($form, $form_state);
+        break;
     }
   }
 
@@ -95,7 +111,7 @@ class RecordCleanerUpload extends FormBase {
       contain at least a date, a location and a taxon name or taxon version key.
       "),
       '#required' => TRUE,
-       '#default_value' =>  $form_state->getValue('file_upload'),
+      '#default_value' =>  $form_state->getValue('file_upload'),
       '#upload_validators' => [
         'FileExtension' => [
           'extensions' => 'csv',
@@ -105,7 +121,7 @@ class RecordCleanerUpload extends FormBase {
         // https://www.drupal.org/node/3363700
         //'FileIsCsv' => [],
       ],
-      //'#upload_location' => 'public://',
+      '#upload_location' => 'private://' . $this->currentUser->id(),
     ];
     $form['actions'] = [
       '#type' => 'actions',
@@ -125,18 +141,24 @@ class RecordCleanerUpload extends FormBase {
   public function forwardFromUploadForm(array &$form, FormStateInterface $form_state) {
     $fid = $form_state->getValue('file_upload')[0];
     $file = $form['file_upload']['#files'][$fid];
-    $fileColumns = $this->csvHelper->getColumns($fid);
-    $form_state->set('file_columns', $fileColumns);
-
-    $this->logger->notice(
-      $this->t("File uploaded: %file (fid=%fid)"),
-      ['%file' => $file->getFileUri(), '%fid' => $fid]);
+    $fileUri = $file->getFileUri();
 
     // Store upload values.
-    $form_state
-      ->set('upload_values', [
-        'file_upload' => $form_state->getValue('file_upload')
-      ]);
+    $form_state->set('upload_values', [
+      'file_upload' => $form_state->getValue('file_upload'),
+      'fid' => $fid,
+      'uri' => $fileUri,
+    ]);
+
+    // Get a list of columns in the file.
+    $fileColumns = $this->csvHelper->getColumns($fileUri);
+    $form_state->set('file_columns', $fileColumns);
+
+    // Log the uploaded file.
+    $this->logger->notice(
+      $this->t("File uploaded: %file (fid=%fid)"),
+      ['%file' => $fileUri, '%fid' => $fid]
+    );
 
     // Advance to the next step.
     $this->moveForward($form_state);
@@ -171,6 +193,12 @@ class RecordCleanerUpload extends FormBase {
     $tvkFieldOptions = $option + $unusedColumns;
     ksort($tvkFieldOptions);
 
+    $key = $form_state->getValue('vc_field');
+    $option = isset($key) ?
+      [$key => $fileColumns[$key]] : [];
+    $vcFieldOptions = $option + $unusedColumns;
+    ksort($vcFieldOptions);
+
     // Wrap the field mapping inputs in a container as a target for AJAX.
     $form['mappings'] = [
       '#type' => 'container',
@@ -182,8 +210,9 @@ class RecordCleanerUpload extends FormBase {
     $form['mappings']['id_field'] = [
       '#type' => 'select',
       '#title' => $this->t("Unique Record Key Field"),
-      '#description' => $this->t("Please select the field in the source data
-      which represents the unique record key."),
+      '#description' => $this->t("If present, please select the field in the
+      source data which represents the unique record key. If not present,
+      select Auto Row Number."),
       '#required' => TRUE,
       '#empty_option' => $this->t('- Select -'),
       '#options' =>
@@ -228,6 +257,22 @@ class RecordCleanerUpload extends FormBase {
       ]
     ];
 
+    $form['mappings']['vc_field'] = [
+      '#type' => 'select',
+      '#title' => $this->t("Vice County"),
+      '#description' => $this->t("If present, please select the field in the
+      source data which holds the vice county. This can be a valid name or
+      number."),
+      '#empty_option' => $this->t('- Select -'),
+      '#options' => $vcFieldOptions,
+      '#default_value' => $form_state->getValue('vc_field'),
+      '#ajax' => [
+        'callback' => '::mappingChangeCallback',
+        'event' => 'change',
+        'wrapper' => 'record_cleaner_mappings',
+      ]
+    ];
+
     $form['actions'] = [
       '#type' => 'actions',
     ];
@@ -264,6 +309,7 @@ class RecordCleanerUpload extends FormBase {
       'id_field' => $form_state->getValue('id_field'),
       'date_field' => $form_state->getValue('date_field'),
       'tvk_field' => $form_state->getValue('tvk_field'),
+      'vc_field' => $form_state->getValue('vc_field'),
     ]);
   }
 
@@ -530,7 +576,7 @@ class RecordCleanerUpload extends FormBase {
     $form['actions']['next'] = [
       '#type' => 'submit',
       '#button_type' => 'primary',
-      '#value' => $this->t('Validate'),
+      '#value' => $this->t('Next'),
       '#submit' => ['::forwardFromSrefForm'],
       //'#validate' => ['::validateSrefForm'],
     ];
@@ -562,9 +608,209 @@ class RecordCleanerUpload extends FormBase {
     ]);
   }
 
-/********************* SOMETHING ELSE *********************/
+/********************* ADDITIONAL FIELDS FORM *********************/
+  public function buildAdditionalForm(array $form, FormStateInterface $form_state) {
+    $unusedColumns = $this->getUnusedColumns($form_state);
+    if (count($unusedColumns) == 0) {
+      $form = [
+        '#type' => 'item',
+        '#title' => $this->t('Optional Fields'),
+        '#description' => $this->t('There are no additional fields in the file
+        for selection. Please proceed to the next step.'),
+      ];
+    }
+    else {
+      // TODO: Possible bug if column zero is unused.
+      // See https://api.drupal.org/api/drupal/core%21lib%21Drupal%21Core%21Render%21Element%21Checkboxes.php/class/Checkboxes/10
+      $form['additional_fields'] = [
+        '#type' => 'checkboxes',
+        '#title' => $this->t('Optional Fields'),
+        '#description' => $this->t('Please select any additional fields from the
+        file that you would like included in the output dataset.'),
+        '#options' => $unusedColumns,
+       '#default_value' => $form_state->getValue('additional_fields', []),
+      ];
+    }
 
+    $form['actions'] = [
+      '#type' => 'actions',
+    ];
 
+    $form['actions']['back'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Back'),
+      '#submit' => ['::backFromAdditionalForm'],
+      //#limit_validation_errors will break things.
+    ];
+    $form['actions']['next'] = [
+      '#type' => 'submit',
+      '#button_type' => 'primary',
+      '#value' => $this->t('Next'),
+      '#submit' => ['::forwardFromAdditionalForm'],
+      //'#validate' => ['::validateSrefForm'],
+    ];
+
+    return $form;
+
+  }
+
+  public function backFromAdditionalForm(array &$form, FormStateInterface $form_state) {
+    $this->saveAdditionalValues($form_state);
+    $this->moveBack($form_state);
+  }
+
+  public function forwardFromAdditionalForm(array &$form, FormStateInterface $form_state) {
+    $this->saveAdditionalValues($form_state);
+    $this->moveForward($form_state);
+  }
+
+  public function saveAdditionalValues(FormStateInterface $form_state) {
+    $form_state->set('additional_values', [
+      'additional_fields' => $form_state->getValue('additional_fields'),
+    ]);
+  }
+
+/********************* VALIDATION FORM *********************/
+  public function buildValidateForm(array $form, FormStateInterface $form_state) {
+
+    // Check for a file entity to store validated results.
+    if (!$form_state->has('file_validate')) {
+      // Obtain the input file URI (private://{userid}/{filename}).
+      $fileInUri =  $form_state->get(['upload_values', 'uri']);
+      // Create an output file URI by appending _validate to the input URI.
+      // -4 means before the '.csv' characters.
+      $fileOutUri = substr_replace($fileInUri, '_validate', -4, 0);
+      // Create a file entity for the output file.
+      $fileOut = File::create([
+        'uri' => $fileOutUri,
+      ]);
+      $fileOut->setOwnerId($this->currentUser->id());
+      $fileOut->save();
+      // Save the output file information in the form_state storage as there
+      // are no inputs to propagate it in form_state values.
+      $form_state->set('file_validate', [
+        'fid' => $fileOut->id(),
+        'uri' => $fileOutUri,
+      ]);
+    }
+
+    $form['validate'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'record_cleaner_validate',
+      ],
+    ];
+
+    $form['validate']['result'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'pre',
+      '#value' => print_r(
+        $form_state->get('mapping_values') +
+        $form_state->get('sref_values'), TRUE
+      ),
+    ];
+
+    // Add a link to the validated file.
+    $url = $this->fileUrlGenerator->generateAbsoluteString(
+      $form_state->get(['file_validate', 'uri'])
+    );
+    $form['validate']['link'] = [
+      '#type' => 'link',
+      '#title' => $this->t('Validated file'),
+      '#url' => Url::fromUri($url),
+      '#states' => ['visible' =>
+        ['input[name="validated"]' => ['value' => '1']],
+      ],
+    ];
+
+    // Add a hidden input to control state of other items.
+    $form['validate']['validated'] = [
+      '#type' => 'hidden',
+      '#default_value' => $form_state->getValue('validated', '0'),
+    ];
+
+    // 'actions' are within the 'validate' container in order for the
+    // Next button to change state after the validation callback.
+    $form['validate']['actions'] = [
+      '#type' => 'actions',
+    ];
+
+    $form['validate']['actions']['back'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Back'),
+      '#submit' => ['::backFromValidateForm'],
+    ];
+
+    $form['validate']['actions']['validate'] = [
+      '#type' => 'submit',
+      '#button_type' => 'primary',
+      '#value' => $this->t('Validate'),
+      '#ajax' => [
+        'callback' => '::validateCallback',
+        'wrapper' => 'record_cleaner_validate',
+        'progress' => [
+          'type' => 'throbber',
+          'message' => $this->t('Validating...'),
+        ],
+      ],
+      //'#submit' => ['::validate'],
+      //'#validate' => ['::validateSrefForm'],
+    ];
+
+    $form['validate']['actions']['next'] = [
+      '#type' => 'submit',
+      '#button_type' => 'primary',
+      '#value' => $this->t('Next'),
+      '#states' => ['enabled' =>
+        ['input[name="validated"]' => ['value' => '1']]
+      ],
+      '#submit' => ['::forwardFromValidateForm'],
+    ];
+
+    return $form;
+  }
+
+  public function backFromValidateForm(array &$form, FormStateInterface $form_state) {
+    $this->saveValidateValues($form_state);
+    $this->moveBack($form_state);
+  }
+
+  public function forwardFromValidateForm(array &$form, FormStateInterface $form_state) {
+    $this->saveValidateValues($form_state);
+    $this->moveForward($form_state);
+  }
+
+  public function saveValidateValues(FormStateInterface $form_state) {
+    // No input values to save currently.
+  }
+
+  public function validateCallback(array &$form, FormStateInterface $form_state) {
+    // Bundle all settings needed for validation.
+    $settings['upload'] = $form_state->get('upload_values');
+    $settings['validate'] = $form_state->get('file_validate');
+    $settings += $form_state->get('mapping_values') +
+      $form_state->get('sref_values');
+
+    // Send to the csv helper service.
+    $errors = $this->csvHelper->validate($settings);
+
+    // Output results.
+    if (count($errors) == 0) {
+      $result = 'Validation successful.';
+      $validated = '1';
+    }
+    else {
+      $result = print_r($errors, TRUE);
+      $validated = '0';
+    }
+
+    $form_state->setValue('validated', $validated);
+
+    $form['validate']['result']['#value'] = $result;
+    $form['validate']['validated']['#value'] = $validated;
+    return $form['validate'];
+
+  }
 
 /********************* UTILITY FUNCTIONS *********************/
 
@@ -607,26 +853,21 @@ class RecordCleanerUpload extends FormBase {
     // built. The options are keyed by column number and the value is the
     // column heading from the first row of the CSV file.
     $unusedColumns = $form_state->get('file_columns');
-    $step = $this->steps[$form_state->get('step_num')];
 
-    switch ($step) {
-      case 'mapping':
-        $idFieldKey = $form_state->getValue('id_field');
-        $dateFieldKey = $form_state->getValue('date_field');
-        $tvkFieldKey = $form_state->getValue('tvk_field');
-        $coord1FieldKey = $form_state->get(['sref_values', 'coord1_field']);
-        $coord2FieldKey = $form_state->get(['sref_values', 'coord2_field']);
-        $precisionFieldKey = $form_state->get(['sref_values', 'precision_field']);
-        break;
-      case 'sref':
-        $idFieldKey = $form_state->get(['mapping_values', 'id_field']);
-        $dateFieldKey = $form_state->get(['mapping_values', 'date_field']);
-        $tvkFieldKey = $form_state->get(['mapping_values', 'tvk_field']);
-        $coord1FieldKey = $form_state->getValue('coord1_field');
-        $coord2FieldKey = $form_state->getValue('coord2_field');
-        $precisionFieldKey = $form_state->getValue(['precision_field']);
-        break;
-    }
+    $idFieldKey = $form_state->getValue('id_field') ??
+      $form_state->get(['mapping_values', 'id_field']);
+    $dateFieldKey = $form_state->getValue('date_field') ??
+      $form_state->get(['mapping_values', 'date_field']);
+    $tvkFieldKey = $form_state->getValue('tvk_field') ??
+      $form_state->get(['mapping_values', 'tvk_field']);
+    $vcFieldKey = $form_state->getValue('vc_field') ??
+      $form_state->get(['mapping_values', 'vc_field']);
+    $coord1FieldKey = $form_state->getValue('coord1_field') ??
+      $form_state->get(['sref_values', 'coord1_field']);
+    $coord2FieldKey = $form_state->getValue('coord2_field') ??
+      $form_state->get(['sref_values', 'coord2_field']);
+    $precisionFieldKey = $form_state->getValue(['precision_field']) ??
+      $form_state->get(['sref_values', 'precision_field']);
 
     if (isset($idFieldKey) && $idFieldKey != 'auto') {
       unset($unusedColumns[$idFieldKey]);
@@ -636,6 +877,9 @@ class RecordCleanerUpload extends FormBase {
     }
     if (isset($tvkFieldKey)) {
       unset($unusedColumns[$tvkFieldKey]);
+    }
+    if (isset($vcFieldKey)) {
+      unset($unusedColumns[$vcFieldKey]);
     }
     if (isset($coord1FieldKey)) {
       unset($unusedColumns[$coord1FieldKey]);
@@ -647,6 +891,19 @@ class RecordCleanerUpload extends FormBase {
       unset($unusedColumns[$precisionFieldKey]);
     }
 
+    // On the additional step we want to show any columns that are not selected
+    // as mapping on to a standard field. However, if we select them on
+    // the additional step, we don't want them being available for selection
+    // on previous steps.
+    $step = $this->steps[$form_state->get('step_num')];
+    if ($step != 'additional') {
+      $additionalFieldsKeys = $form_state->get(['additional_values', 'additional_fields']);
+      if (isset($additionalFieldsKeys)) {
+        foreach ($additionalFieldsKeys as $key) {
+          unset($unusedColumns[$key]);
+        }
+      }
+    }
     return $unusedColumns;
   }
 
