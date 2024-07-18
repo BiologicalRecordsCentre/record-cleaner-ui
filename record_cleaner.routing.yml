@@ -14,11 +14,11 @@ record_cleaner.status:
   requirements:
     _permission: 'use record cleaner'
 
-record_cleaner.upload:
-  path: '/record_cleaner/upload'
+record_cleaner.ui:
+  path: '/record_cleaner/ui'
   defaults:
-    _form: '\Drupal\record_cleaner\Form\RecordCleanerUpload'
-    _title: 'Record Cleaner File Upload'
+    _form: '\Drupal\record_cleaner\Form\RecordCleanerUI'
+    _title: 'Record Cleaner'
   requirements:
     _permission: 'use record cleaner'
 

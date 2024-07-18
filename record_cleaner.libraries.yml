@@ -1,0 +1,4 @@
+record_cleaner:
+ css:
+   theme:
+     css/record-cleaner.theme.css: {}
