@@ -8,14 +8,9 @@ services:
     class: Drupal\record_cleaner\Service\ApiHelper
     arguments:
       - '@record_cleaner.logger_channel'
+      - '@cache.data'
       - '@config.factory'
       - '@http_client_factory'
-
-  record_cleaner.ui_helper:
-    class: Drupal\record_cleaner\Service\UiHelper
-    arguments:
-      - '@record_cleaner.logger_channel'
-      - '@messenger'
 
   record_cleaner.csv_helper:
     class: Drupal\record_cleaner\Service\CsvHelper

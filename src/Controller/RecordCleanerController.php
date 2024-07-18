@@ -40,8 +40,9 @@ class RecordCleanerController extends ControllerBase {
    * This callback is linked to the path /record_cleaner
    */
   public function overview() {
-    $RecordCleanerService = \Drupal::service('record_cleaner.record_cleaner_service');
-    $element = $RecordCleanerService->overview();
+    $element = [
+      '#markup' => '<p>A helpful introduction.</p>',
+    ];
     return $element;
   }
 

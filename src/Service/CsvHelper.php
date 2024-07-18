@@ -74,20 +74,20 @@ class CsvHelper {
     return $columns;
   }
 
-  public function setColumns($settings) {
-    $row = [];
+  public function getValidateColumns($settings) {
+    $columns = [];
     $i = 0;
-    $row[$i++] = 'id';
-    $row[$i++] = 'date';
-    $row[$i++] = 'gridref';
-    $row[$i++] = 'tvk';
-    $row[$i++] = 'name';
-    $row[$i++] = 'id_difficulty';
-    $row[$i++] = 'vc';
-    $row[$i++] = 'messages';
-    return $row;
-
+    $columns[$i++] = 'id';
+    $columns[$i++] = 'date';
+    $columns[$i++] = 'gridref';
+    $columns[$i++] = 'tvk';
+    $columns[$i++] = 'name';
+    $columns[$i++] = 'id_difficulty';
+    $columns[$i++] = 'vc';
+    $columns[$i++] = 'messages';
+    return $columns;
   }
+
 
   /**
    * Send the contents of the CSV file to the validation service.
@@ -112,7 +112,7 @@ class CsvHelper {
       // Skip the first line of the input file.
       fgetcsv($fpIn);
       // Write the header to the output file.
-      $row = $this->setColumns($settings);
+      $row = $this->getValidateColumns($settings);
       fputcsv($fpOut, $row);
 
       // Loop through rest of the input file line by line.
@@ -142,6 +142,88 @@ class CsvHelper {
       return $errors;
     }
   }
+
+  public function validateChunk($chunk, $settings, $fpOut) {
+    $errors = [];
+    $json = $this->api->validate($chunk);
+    $array = json_decode($json, TRUE);
+    foreach ($array as $record) {
+      if ($record['ok'] == FALSE) {
+        $errors += $record['messages'];
+      }
+      $row = $this->toCsv($record, $settings);
+      fputcsv($fpOut, $row);
+    }
+    return $errors;
+  }
+
+public function verify($settings) {
+    $chunk_size = 100;
+    $fileInUri = $settings['validate']['uri'];
+    $fileOutUri = $settings['verify']['uri'];
+    $fileInPath = $this->getFilePath($fileInUri);
+    $fileOutPath = $this->getFilePath($fileOutUri);
+
+    $chunk = [];
+    $errors = [];
+    $count = 1;
+
+    try {
+      $fpIn = fopen($fileInPath, 'r');
+      $fpOut = fopen($fileOutPath, 'w');
+      // Skip the first line of the input file.
+      fgetcsv($fpIn);
+      // Write the header to the output file.
+      $row = $this->getValidateColumns($settings);
+      fputcsv($fpOut, $row);
+
+      // Loop through rest of the input file line by line.
+      while (($row = fgetcsv($fpIn)) !== FALSE) {
+        // Format data for verification.
+        $chunk[] = $this->toVerify($row, $settings);
+        // Send to the service in chunks.
+        if ($count % $chunk_size == 0) {
+          $errors += $this->verifyChunk($chunk, $settings, $fpOut);
+          $chunk = [];
+        }
+        else {
+          $count++;
+        }
+      }
+      // Verify the last partial chunk.
+      if ($count % $chunk_size != 0) {
+        $errors += $this->verifyChunk($chunk, $settings, $fpOut);
+      }
+    }
+    catch (\Exception $e) {
+      $errors[] = $e->getMessage();
+    }
+    finally {
+      fclose($fpIn);
+      fclose($fpOut);
+      return $errors;
+    }
+  }
+
+  public function verifyChunk($chunk, $settings, $fpOut) {
+    $errors = [];
+    $pack = [
+      'org_group_rules_list' => $settings['org_group_rules'],
+      'records' => $chunk,
+    ];
+
+    $json = $this->api->verify($pack);
+    $array = json_decode($json, TRUE);
+    foreach ($array['records'] as $record) {
+      if ($record['ok'] == FALSE) {
+        $errors += $record['messages'];
+      }
+      $row = $this->toVerifyCsv($record, $settings);
+      fputcsv($fpOut, $row);
+    }
+    return $errors;
+  }
+
 
   /**
    * Convert a CSV row to a data structure for the validation service.
@@ -173,8 +255,8 @@ class CsvHelper {
         }
       }
       else {
-        $coord1 = ($settings['coord1_field']);
-        $coord2 = ($settings['coord2_field']);
+        $coord1 = $row[$settings['coord1_field']];
+        $coord2 = $row[$settings['coord2_field']];
       }
 
       $precisionField = $settings['precision_field'];
@@ -220,20 +302,70 @@ class CsvHelper {
     return $validate;
   }
 
-  public function validateChunk($chunk, $settings, $fpOut) {
-    $errors = [];
-    $json = $this->api->validate($chunk);
-    $array = json_decode($json, TRUE);
-    foreach ($array as $record) {
-      if ($record['ok'] == FALSE) {
-        $errors += $record['messages'];
-      }
-      $row = $this->toCsv($record, $settings);
-      fputcsv($fpOut, $row);
+  public function toVerify($row, $settings) {
+    // Create the Sref sub-structure first.
+    if ($settings['sref_type'] == 'grid') {
+      $sref = [
+        'srid' => $settings['sref_grid'],
+        'gridref' => $row[2],
+      ];
     }
-    return $errors;
-  }
+    else {
+      if ($settings['sref_nr_coords'] == 1) {
+        // Try splitting on likely separators.
+        $separators = [',', ' '];
+        $coord1 = $coord2 = NULL;
+        foreach ($separators as $separator) {
+          $coords = explode($separator, $row[2]);
+          if (count($coords) == 2) {
+            $coord1 = trim($coords[0]);
+            $coord2 = trim($coords[1]);
+            break;
+          }
+        }
+      }
+      else {
+        $coord1 = ($settings['coord1_field']);
+        $coord2 = ($settings['coord2_field']);
+      }
 
+      $precisionField = $settings['precision_field'];
+      if ($precisionField == 'manual') {
+        $accuracy = $settings['precision_value'];
+      }
+      else {
+        $accuracy = $row[$precisionField];
+      }
+
+      if ($settings['sref_type'] == 'en') {
+        $sref = [
+          'srid' => $settings['sref_en'],
+          'easting' => $coord1,
+          'northing' => $coord2,
+          'accuracy' => $$accuracy
+        ];
+      }
+      else {
+        $sref = [
+          'srid' => $settings['sref_latlon'],
+          'longitude' => $coord1,
+          'latitude' => $coord2,
+          'accuracy' => $$accuracy
+        ];
+      }
+    }
+
+    // Now assemble the verification structure.
+    $verify = [
+      'id' => $row[0] ,
+      'date' => $row[1],
+      'sref' => $sref,
+      'tvk' => $row[3],
+      'vc' => $row[6],
+    ];
+
+    return $verify;
+  }
 
   /**
    * Convert a record from the validation service to a CSV row.
@@ -255,4 +387,16 @@ class CsvHelper {
       return $row;
   }
 
+  public function toVerifyCsv($record, $settings) {
+    $row = [];
+    $i = 0;
+    $row[$i++] = $record['id'];
+    $row[$i++] = $record['date'];
+    $row[$i++] = $record['sref']['gridref'];
+    $row[$i++] = $record['tvk'];
+    $row[$i++] = $record['name'];
+    $row[$i++] = $record['vc'];
+    $row[$i++] = implode('\n',$record['messages']);
+    return $row;
+}
 }

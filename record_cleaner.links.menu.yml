@@ -15,3 +15,9 @@ record_cleaner.status:
   description: "Status of Record Cleaner service."
   route_name: record_cleaner.status
   parent: "record_cleaner"
+
+record_cleaner.ui:
+  title: "Clean"
+  description: "Perform record cleaning."
+  route_name: record_cleaner.ui
+  parent: "record_cleaner"
