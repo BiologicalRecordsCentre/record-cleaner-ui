@@ -5,3 +5,19 @@
 .record-cleaner-rule-container {
   padding-left: 1em;
 }
+
+.record-cleaner-table {
+  border-collapse: collapse;
+
+  caption {
+    text-align: left;
+    font-size: 2em;
+    font-weight: bold;
+    margin-bottom: 1em;
+  }
+
+  th, td {
+    padding: 0.5em;
+    text-align: left;
+  }
+}

@@ -10,6 +10,7 @@ namespace Drupal\record_cleaner\Service;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManager;
 use Drupal\record_cleaner\Service\ApiHelper;
+use Exception;
 
 
 
@@ -74,35 +75,25 @@ class CsvHelper {
     return $columns;
   }
 
-  public function getValidateColumns($settings) {
-    $columns = [];
-    $i = 0;
-    $columns[$i++] = 'id';
-    $columns[$i++] = 'date';
-    $columns[$i++] = 'gridref';
-    $columns[$i++] = 'tvk';
-    $columns[$i++] = 'name';
-    $columns[$i++] = 'id_difficulty';
-    $columns[$i++] = 'vc';
-    $columns[$i++] = 'messages';
-    return $columns;
-  }
-
-
   /**
-   * Send the contents of the CSV file to the validation service.
+   * Send the contents of the CSV file to the record cleaner service.
+   *
+   * Data from the source file, described in $settings['source']['mappings],
+   * is submitted to the record cleaner service. The response is written to file
+   * in the manner described in $settings['output']['columns'].
    * @param $settings
    *
    * @return
    */
-  public function validate($settings) {
+  public function submit($settings) {
     $chunk_size = 100;
-    $fileInUri = $settings['upload']['uri'];
-    $fileOutUri = $settings['validate']['uri'];
+    $fileInUri = $settings['source']['uri'];
+    $fileOutUri = $settings['output']['uri'];
     $fileInPath = $this->getFilePath($fileInUri);
     $fileOutPath = $this->getFilePath($fileOutUri);
 
-    $chunk = [];
+    $recordChunk = [];
+    $additionalChunk = [];
     $errors = [];
     $count = 1;
 
@@ -112,17 +103,23 @@ class CsvHelper {
       // Skip the first line of the input file.
       fgetcsv($fpIn);
       // Write the header to the output file.
-      $row = $this->getValidateColumns($settings);
+      $row = $this->getOutputFileHeader($settings);
       fputcsv($fpOut, $row);
 
       // Loop through rest of the input file line by line.
       while (($row = fgetcsv($fpIn)) !== FALSE) {
-        // Format data for validation.
-        $chunk[] = $this->toValidate($row, $count, $settings);
+        // Format data for submission to API.
+        $recordChunk[] = $this->buildRecordSubmission($row, $count, $settings);
+        // Save additional data for output file.
+        list($id, $value) = $this->getAdditionalData($row, $count, $settings);
+        $additionalChunk[$id] = $value;
         // Send to the service in chunks.
         if ($count % $chunk_size == 0) {
-          $errors += $this->validateChunk($chunk, $settings, $fpOut);
-          $chunk = [];
+          $errors += $this->submitChunk(
+            $recordChunk, $additionalChunk, $settings, $fpOut
+          );
+          $recordChunk = [];
+          $additionalChunk = [];
         }
         else {
           $count++;
@@ -130,7 +127,9 @@ class CsvHelper {
       }
       // Validate the last partial chunk.
       if ($count % $chunk_size != 0) {
-        $errors += $this->validateChunk($chunk, $settings, $fpOut);
+        $errors += $this->submitChunk(
+          $recordChunk, $additionalChunk, $settings, $fpOut
+        );
       }
     }
     catch (\Exception $e) {
@@ -143,228 +142,66 @@ class CsvHelper {
     }
   }
 
-  public function validateChunk($chunk, $settings, $fpOut) {
+  public function submitChunk($recordChunk, $additionalChunk, $settings, $fpOut) {
     $errors = [];
-    $json = $this->api->validate($chunk);
-    $array = json_decode($json, TRUE);
-    foreach ($array as $record) {
+
+    // Submit chunk to relevant service.
+    if ($settings['action'] == 'validate') {
+      $json = $this->api->validate($recordChunk);
+      $records = json_decode($json, TRUE);
+    }
+    else {
+      $pack = [
+        'org_group_rules_list' => $settings['org_group_rules'],
+        'records' => $recordChunk,
+      ];
+      $json = $this->api->verify($pack);
+      $records = json_decode($json, TRUE)['records'];
+    }
+
+    // Loop through results accumulating errors and outputting to file.
+    foreach ($records as $record) {
       if ($record['ok'] == FALSE) {
-        $errors += $record['messages'];
+        $errors = array_merge($errors, $record['messages']);
       }
-      $row = $this->toCsv($record, $settings);
+      $idValue = $record['id'];
+      $additional = $additionalChunk[$idValue];
+
+      $row = $this->getOutputFileRow($record, $additional, $settings);
       fputcsv($fpOut, $row);
     }
     return $errors;
   }
 
-public function verify($settings) {
-    $chunk_size = 100;
-    $fileInUri = $settings['validate']['uri'];
-    $fileOutUri = $settings['verify']['uri'];
-    $fileInPath = $this->getFilePath($fileInUri);
-    $fileOutPath = $this->getFilePath($fileOutUri);
+  public function getAdditionalData($row, $count, $settings) {
+    // Attach the same id to the additional data as the validation data
+    // so that they can be joined up again after calling the validation service.
+    $mappings = $settings['source']['mappings'];
+    $idField = $mappings['id_field'] ?? 'auto';
+    $idValue = $idField == 'auto' ? $count : $row[$idField];
 
-    $chunk = [];
-    $errors = [];
-    $count = 1;
-
-    try {
-      $fpIn = fopen($fileInPath, 'r');
-      $fpOut = fopen($fileOutPath, 'w');
-      // Skip the first line of the input file.
-      fgetcsv($fpIn);
-      // Write the header to the output file.
-      $row = $this->getValidateColumns($settings);
-      fputcsv($fpOut, $row);
-
-      // Loop through rest of the input file line by line.
-      while (($row = fgetcsv($fpIn)) !== FALSE) {
-        // Format data for verification.
-        $chunk[] = $this->toVerify($row, $settings);
-        // Send to the service in chunks.
-        if ($count % $chunk_size == 0) {
-          $errors += $this->verifyChunk($chunk, $settings, $fpOut);
-          $chunk = [];
-        }
-        else {
-          $count++;
-        }
-      }
-      // Verify the last partial chunk.
-      if ($count % $chunk_size != 0) {
-        $errors += $this->verifyChunk($chunk, $settings, $fpOut);
+    // Construct an array of the values to pass through, keyed by output column
+    // number. Stage is passed through during validation as we need it for
+    // verification.
+    $data = [];
+    foreach($settings['output']['columns'] as $colNum => $value) {
+      if (
+        $value['function'] == 'additional' ||
+        ($value['function'] == 'stage' && $settings['action'] == 'validate')
+      ) {
+        $data[$colNum] = $row[$value['column']];
       }
     }
-    catch (\Exception $e) {
-      $errors[] = $e->getMessage();
-    }
-    finally {
-      fclose($fpIn);
-      fclose($fpOut);
-      return $errors;
-    }
+
+    return [$idValue, $data];
   }
 
-  public function verifyChunk($chunk, $settings, $fpOut) {
-    $errors = [];
-    $pack = [
-      'org_group_rules_list' => $settings['org_group_rules'],
-      'records' => $chunk,
-    ];
-
-    $json = $this->api->verify($pack);
-    $array = json_decode($json, TRUE);
-    foreach ($array['records'] as $record) {
-      if ($record['ok'] == FALSE) {
-        $errors += $record['messages'];
-      }
-      $row = $this->toVerifyCsv($record, $settings);
-      fputcsv($fpOut, $row);
+  public function getOutputFileHeader($settings) {
+    $row = [];
+    foreach($settings['output']['columns'] as $column) {
+      $row[] = $column['name'];
     }
-    return $errors;
-  }
-
-
-  /**
-   * Convert a CSV row to a data structure for the validation service.
-   *
-   * @param $row The CSV row as an array.
-   * @param $count The row number.
-   * @param $settings
-   */
-  public function toValidate($row, $count, $settings) {
-    // Create the Sref sub-structure first.
-    if ($settings['sref_type'] == 'grid') {
-      $sref = [
-        'srid' => $settings['sref_grid'],
-        'gridref' => $row[$settings['coord1_field']],
-      ];
-    }
-    else {
-      if ($settings['sref_nr_coords'] == 1) {
-        // Try splitting on likely separators.
-        $separators = [',', ' '];
-        $coord1 = $coord2 = NULL;
-        foreach ($separators as $separator) {
-          $coords = explode($separator, $row[$settings['coord1_field']]);
-          if (count($coords) == 2) {
-            $coord1 = trim($coords[0]);
-            $coord2 = trim($coords[1]);
-            break;
-          }
-        }
-      }
-      else {
-        $coord1 = $row[$settings['coord1_field']];
-        $coord2 = $row[$settings['coord2_field']];
-      }
-
-      $precisionField = $settings['precision_field'];
-      if ($precisionField == 'manual') {
-        $accuracy = $settings['precision_value'];
-      }
-      else {
-        $accuracy = $row[$precisionField];
-      }
-
-      if ($settings['sref_type'] == 'en') {
-        $sref = [
-          'srid' => $settings['sref_en'],
-          'easting' => $coord1,
-          'northing' => $coord2,
-          'accuracy' => $$accuracy
-        ];
-      }
-      else {
-        $sref = [
-          'srid' => $settings['sref_latlon'],
-          'longitude' => $coord1,
-          'latitude' => $coord2,
-          'accuracy' => $$accuracy
-        ];
-      }
-    }
-
-    // Now assemble the validation structure.
-    $idField = $settings['id_field'];
-    $validate = [
-      'id' => $idField == 'auto' ? $count : $row[$idField] ,
-      'date' => $row[$settings['date_field']],
-      'sref' => $sref,
-      'tvk' => $row[$settings['tvk_field']],
-    ];
-
-    $vcField = $settings['vc_field'];
-    if ($vcField != '') {
-      $validate['vc'] = $row[$vcField];
-    }
-
-    return $validate;
-  }
-
-  public function toVerify($row, $settings) {
-    // Create the Sref sub-structure first.
-    if ($settings['sref_type'] == 'grid') {
-      $sref = [
-        'srid' => $settings['sref_grid'],
-        'gridref' => $row[2],
-      ];
-    }
-    else {
-      if ($settings['sref_nr_coords'] == 1) {
-        // Try splitting on likely separators.
-        $separators = [',', ' '];
-        $coord1 = $coord2 = NULL;
-        foreach ($separators as $separator) {
-          $coords = explode($separator, $row[2]);
-          if (count($coords) == 2) {
-            $coord1 = trim($coords[0]);
-            $coord2 = trim($coords[1]);
-            break;
-          }
-        }
-      }
-      else {
-        $coord1 = ($settings['coord1_field']);
-        $coord2 = ($settings['coord2_field']);
-      }
-
-      $precisionField = $settings['precision_field'];
-      if ($precisionField == 'manual') {
-        $accuracy = $settings['precision_value'];
-      }
-      else {
-        $accuracy = $row[$precisionField];
-      }
-
-      if ($settings['sref_type'] == 'en') {
-        $sref = [
-          'srid' => $settings['sref_en'],
-          'easting' => $coord1,
-          'northing' => $coord2,
-          'accuracy' => $$accuracy
-        ];
-      }
-      else {
-        $sref = [
-          'srid' => $settings['sref_latlon'],
-          'longitude' => $coord1,
-          'latitude' => $coord2,
-          'accuracy' => $$accuracy
-        ];
-      }
-    }
-
-    // Now assemble the verification structure.
-    $verify = [
-      'id' => $row[0] ,
-      'date' => $row[1],
-      'sref' => $sref,
-      'tvk' => $row[3],
-      'vc' => $row[6],
-    ];
-
-    return $verify;
+    return $row;
   }
 
   /**
@@ -373,30 +210,164 @@ public function verify($settings) {
    * @param $record  A response from the validation service.
    * @param $settings
    */
-  public function toCsv($record, $settings) {
-      $row = [];
-      $i = 0;
-      $row[$i++] = $record['id'];
-      $row[$i++] = $record['date'];
-      $row[$i++] = $record['sref']['gridref'];
-      $row[$i++] = $record['tvk'];
-      $row[$i++] = $record['name'];
-      $row[$i++] = implode('\n', $record['id_difficulty']);
-      $row[$i++] = $record['vc'];
-      $row[$i++] = implode('\n',$record['messages']);
-      return $row;
+  public function getOutputFileRow($record, $additional, $settings) {
+    $row = [];
+    foreach($settings['output']['columns'] as $colNum => $column) {
+
+      $function = $column['function'];
+
+      switch ($function) {
+        case 'id_difficulty':
+        case 'messages':
+          // Combine array fields into a single string.
+          $row[] = implode("\n", $record[$function]);
+          break;
+
+        case 'coord1':
+          if ($settings['sref']['type'] == 'grid') {
+            $row[] = $record['sref']['gridref'];
+          }
+          elseif ($settings['sref']['type'] == 'en') {
+            if ($settings['sref']['nr_coords'] == 1) {
+              $row[] = $record['sref']['easting'] . ' ' . $record['sref']['northing'];
+            }
+            else {
+              $row[] = $record['sref']['easting'];
+            }
+          }
+          else {
+            if ($settings['sref']['nr_coords'] == 1) {
+              $row[] = $record['sref']['longitude'] . ' ' . $record['sref']['latitude'];
+            }
+            else {
+              $row[] = $record['sref']['longitude'];
+            }
+          }
+          break;
+
+        case 'coord2':
+          if ($settings['sref']['type'] == 'en') {
+              $row[] = $record['sref']['northing'];
+          }
+          else {
+              $row[] = $record['sref']['latitude'];
+          }
+          break;
+
+        case 'additional':
+          $row[] = $additional[$colNum];
+          break;
+
+        case 'stage':
+          if ($settings['action'] == 'validate') {
+            // During validation, stage is passed through in additional data.
+            $row[] = $additional[$colNum];
+          }
+          else {
+            // During verification, stage is returned in the record.
+            $row[] = $record[$function];
+          }
+          break;
+
+        case 'ok':
+          $row[] = $record[$function] ? 'Y' : 'N';
+          break;
+
+        default:
+          $row[] = $record[$function];
+          break;
+      }
+    }
+    return $row;
   }
 
-  public function toVerifyCsv($record, $settings) {
-    $row = [];
-    $i = 0;
-    $row[$i++] = $record['id'];
-    $row[$i++] = $record['date'];
-    $row[$i++] = $record['sref']['gridref'];
-    $row[$i++] = $record['tvk'];
-    $row[$i++] = $record['name'];
-    $row[$i++] = $record['vc'];
-    $row[$i++] = implode('\n',$record['messages']);
-    return $row;
-}
+  public function buildSrefSubmission($row, $settings) {
+    // Select the mappings from function to row index.
+    $mappings = $settings['source']['mappings'];
+
+    $sref['srid'] = $settings['sref']['srid'];
+
+    if ($settings['sref']['type'] == 'grid') {
+      // Gridrefs are simple.
+      $sref['gridref'] = $row[$mappings['coord1_field']];
+    }
+    else {
+      // Determine precision of coordinates.
+      $precisionField = $mappings['precision_field'] ?? 'manual';
+      if ($precisionField == 'manual') {
+        $accuracy = $settings['sref']['precision_value'];
+      }
+      else {
+        $accuracy = $row[$precisionField];
+      }
+      $sref['accuracy'] = $accuracy;
+
+      // Unscramble coordinates in to x and y.
+      if ($settings['sref']['nr_coords'] == 1) {
+        // Try splitting on likely separators.
+        $separators = [ ',', ' '];
+        $coord1 = $coord2 = NULL;
+        foreach ($separators as $separator) {
+          $coords = explode($separator, $row[$mappings['coord1_field']]);
+          if (count($coords) == 2) {
+            $coord1 = trim($coords[0]);
+            $coord2 = trim($coords[1]);
+            break;
+          }
+        }
+      }
+      else {
+        $coord1 = $row[$mappings['coord1_field']];
+        $coord2 = $row[$mappings['coord2_field']];
+      }
+
+      if ($settings['sref_type'] == 'en') {
+        $sref['easting'] = $coord1;
+        $sref['northing'] = $coord2;
+      }
+      else {
+        $sref['longitude'] = $coord1;
+        $sref['latitude'] = $coord2;
+      }
+
+    }
+
+    return $sref;
+  }
+
+  /**
+   * Convert a CSV row to a data structure for the validation service.
+   *
+   * @param $row The CSV row as an array.
+   * @param $count The row number.
+   * @param $settings
+   */
+  public function buildRecordSubmission($row, $count, $settings) {
+    // Select the mappings from function to row index.
+    $mappings = $settings['source']['mappings'];
+
+    // Mandatory fields.
+    $idField = $mappings['id_field'] ?? 'auto';
+    $record = [
+      'id' => $idField == 'auto' ? $count : $row[$idField] ,
+      'date' => $row[$mappings['date_field']],
+      'sref' => $this->buildSrefSubmission($row, $settings),
+      'tvk' => $row[$mappings['tvk_field']],
+    ];
+
+    // Optional fields.
+    if(array_key_exists('vc_field', $mappings)) {
+      $record['vc'] = $row[$mappings['vc_field']];
+    }
+
+    // Extra optional field for verification.
+    if ($settings['action'] == 'verify') {
+      if(array_key_exists('stage_field', $mappings)) {
+        $record['stage'] = $row[$mappings['stage_field']];
+      }
+    }
+
+    return $record;
+  }
+
 }

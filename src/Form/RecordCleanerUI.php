@@ -28,6 +28,12 @@ class RecordCleanerUI extends FormBase {
     'upload', 'mapping', 'sref', 'additional', 'validate', 'verify'
   ];
 
+  public $gridSystems;
+
+  public $enSystems;
+
+  public $latlonSystems;
+
   /**
    * Constructs a new FileExampleReadWriteForm object.
    *
@@ -54,6 +60,21 @@ class RecordCleanerUI extends FormBase {
     protected EntityTypeManager $entityTypeManager,
     protected FileUrlGenerator $fileUrlGenerator,
   ) {
+    $this->gridSystems = [
+      '27700' => $this->t('British gridref (e.g.SM123456)'),
+      '29903' => $this->t('Irish gridref (e.g. G123456)'),
+      '23030' => $this->t('Channel Islands gridref (e.g. WA/WV)'),
+      '0' => $this->t('British, Irish or CI gridref'),
+    ];
+
+    $this->enSystems = [
+      '27700' => $this->t('British'),
+      '29903' => $this->t('Irish'),
+    ];
+
+    $this->latlonSystems = [
+      '4326' => $this->t('World Geodetic System (WGS84)'),
+    ];
   }
 
   /**
@@ -156,13 +177,15 @@ class RecordCleanerUI extends FormBase {
     // Store upload values.
     $form_state->set('upload_values', [
       'file_upload' => $form_state->getValue('file_upload'),
+    ]);
+    $form_state->set('file_upload', [
       'fid' => $fid,
       'uri' => $fileUri,
     ]);
 
     // Get a list of columns in the file.
     $fileColumns = $this->csvHelper->getColumns($fileUri);
-    $form_state->set('file_columns', $fileColumns);
+    $form_state->set(['file_upload', 'columns'], $fileColumns);
 
     // Log the uploaded file.
     $this->logger->notice(
@@ -182,32 +205,38 @@ class RecordCleanerUI extends FormBase {
     // required fields has its options recalculated every time the form is
     // built. The options are keyed by column number and the value is the
     // column heading from the first row of the CSV file.
-    $fileColumns = $form_state->get('file_columns');
+    $fileColumns = $form_state->get(['file_upload', 'columns']);
     $unusedColumns = $this->getUnusedColumns($form_state);
 
     $key = $form_state->getValue('id_field');
-    $option = isset($key) && $key != 'auto'?
+    $option = is_numeric($key) ?
       [$key => $fileColumns[$key]] : [];
     $idFieldOptions = $option + $unusedColumns;
     ksort($idFieldOptions);
 
     $key = $form_state->getValue('date_field');
-    $option = isset($key) ?
+    $option = is_numeric($key) ?
       [$key => $fileColumns[$key]] : [];
     $dateFieldOptions = $option + $unusedColumns;
     ksort($dateFieldOptions);
 
     $key = $form_state->getValue('tvk_field');
-    $option = isset($key) ?
+    $option = is_numeric($key) ?
       [$key => $fileColumns[$key]] : [];
     $tvkFieldOptions = $option + $unusedColumns;
     ksort($tvkFieldOptions);
 
     $key = $form_state->getValue('vc_field');
-    $option = isset($key) ?
+    $option = is_numeric($key) ?
       [$key => $fileColumns[$key]] : [];
     $vcFieldOptions = $option + $unusedColumns;
     ksort($vcFieldOptions);
+
+    $key = $form_state->getValue('stage_field');
+    $option = is_numeric($key) ?
+      [$key => $fileColumns[$key]] : [];
+    $stageFieldOptions = $option + $unusedColumns;
+    ksort($stageFieldOptions);
 
     // Wrap the field mapping inputs in a container as a target for AJAX.
     $form['mappings'] = [
@@ -283,6 +312,22 @@ class RecordCleanerUI extends FormBase {
       ]
     ];
 
+    $form['mappings']['stage_field'] = [
+      '#type' => 'select',
+      '#title' => $this->t("Life Stage"),
+      '#description' => $this->t("If present, please select the field in the
+      source data which holds the life stage. This can be a valid name or
+      number."),
+      '#empty_option' => $this->t('- Select -'),
+      '#options' => $stageFieldOptions,
+      '#default_value' => $form_state->getValue('stage_field'),
+      '#ajax' => [
+        'callback' => '::mappingChangeCallback',
+        'event' => 'change',
+        'wrapper' => 'record_cleaner_mappings',
+      ]
+    ];
+
     $form['actions'] = [
       '#type' => 'actions',
     ];
@@ -320,6 +365,7 @@ class RecordCleanerUI extends FormBase {
       'date_field' => $form_state->getValue('date_field'),
       'tvk_field' => $form_state->getValue('tvk_field'),
       'vc_field' => $form_state->getValue('vc_field'),
+      'stage_field' => $form_state->getValue('stage_field'),
     ]);
   }
 
@@ -376,26 +422,26 @@ class RecordCleanerUI extends FormBase {
     // required fields has its options recalculated every time the form is
     // built. The options are keyed by column number and the value is the
     // column heading from the first row of the CSV file.
-    $fileColumns = $form_state->get('file_columns');
+    $fileColumns = $form_state->get(['file_upload', 'columns']);
     $unusedColumns = $this->getUnusedColumns($form_state);
 
     // Create sorted list of options for coord1.
     $key = $form_state->getValue('coord1_field');
-    $option = isset($key) ?
+    $option = is_numeric($key) ?
       [$key => $fileColumns[$key]] : [];
     $coord1FieldOptions = $option + $unusedColumns;
     ksort($coord1FieldOptions);
 
     // Create sorted list of options for coord2.
     $key = $form_state->getValue('coord2_field');
-    $option = isset($key) ?
+    $option = is_numeric($key) ?
       [$key => $fileColumns[$key]] : [];
     $coord2FieldOptions = $option + $unusedColumns;
     ksort($coord2FieldOptions);
 
     // Create sorted list of options for precision.
     $key = $form_state->getValue('precision_field');
-    $option = isset($key) && $key != 'manual' ?
+    $option = is_numeric($key)  ?
       [$key => $fileColumns[$key]] : [];
     $precisionFieldOptions = $option + $unusedColumns;
     ksort($precisionFieldOptions);
@@ -432,12 +478,7 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t("Grid Reference System"),
       '#description' => $this->t("Please select the grid reference type."),
       '#required' => TRUE,
-      '#options' => [
-        '27700' => $this->t('British gridref (e.g.SM123456)'),
-        '29903' => $this->t('Irish gridref (e.g. G123456)'),
-        '23030' => $this->t('Channel Islands gridref (e.g. WA/WV)'),
-        '0' => $this->t('British, Irish or CI gridref'),
-      ],
+      '#options' => $this->gridSystems,
       '#default_value' => $form_state->getValue('sref_grid'),
     ];
 
@@ -446,10 +487,7 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t("Coordinate System"),
       '#description' => $this->t("Please select the coordinate system."),
       '#required' => TRUE,
-      '#options' => [
-        '27700' => $this->t('British'),
-        '29903' => $this->t('Irish'),
-      ],
+      '#options' => $this->enSystems,
       '#default_value' => $form_state->getValue('sref_en'),
     ];
 
@@ -458,9 +496,7 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t("Latitude and Longitude System"),
       '#description' => $this->t("Please select the latitude and longitude type."),
       '#required' => TRUE,
-      '#options' => [
-        '4326' => $this->t('World Geodetic System (WGS84)'),
-      ],
+      '#options' => $this->latlonSystems,
       '#default_value' => $form_state->getValue('sref_latlon'),
     ];
 
@@ -686,7 +722,7 @@ class RecordCleanerUI extends FormBase {
     // Check for a file entity to store validated results.
     if (!$form_state->has('file_validate')) {
       // Obtain the input file URI (private://{userid}/{filename}).
-      $fileInUri =  $form_state->get(['upload_values', 'uri']);
+      $fileInUri =  $form_state->get(['file_upload', 'uri']);
       // Create an output file URI by appending _validate to the input URI.
       // -4 means before the '.csv' characters.
       $fileOutUri = substr_replace($fileInUri, '_validate', -4, 0);
@@ -704,6 +740,23 @@ class RecordCleanerUI extends FormBase {
       ]);
     }
 
+    $form['settings'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Settings Summary'),
+      '#open' =>  TRUE,
+    ];
+
+    $form['settings']['summary'] = [
+      '#type' => 'table',
+      '#attributes' => [
+        'class' => ['record-cleaner-table'],
+      ],
+      '#header' => ['Setting', 'Value'],
+      '#rows' => $this->getSettingsSummary($form_state),
+    ];
+    // Attach CSS to format table.
+    $form['settings']['#attached']['library'][] = 'record_cleaner/record_cleaner';
+
     $form['validate'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -711,16 +764,22 @@ class RecordCleanerUI extends FormBase {
       ],
     ];
 
-    $form['validate']['result'] = [
+    $form['validate']['output'] = [
       '#type' => 'html_tag',
       '#tag' => 'pre',
-      '#value' => print_r(
-        $form_state->get('mapping_values') +
-        $form_state->get('sref_values'), TRUE
-      ),
+      '#value' => '',
     ];
 
-    // Add a link to the validated file.
+    // Add a hidden input to control state of other items.
+    // There is no change event for this input but it is taken in to account
+    // when Ajax content is loaded and initial states are set.
+    // It has a value of 0 which is changed to pass or fail after validation.
+    $form['validate']['result'] = [
+      '#type' => 'hidden',
+      '#default_value' => $form_state->getValue('result', '0'),
+    ];
+
+    // Add a link to the validated file shown after validation.
     $url = $this->fileUrlGenerator->generateAbsoluteString(
       $form_state->get(['file_validate', 'uri'])
     );
@@ -729,14 +788,8 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t('Validated file'),
       '#url' => Url::fromUri($url),
       '#states' => ['visible' =>
-        ['input[name="validated"]' => ['value' => '1']],
+        ['input[name="result"]' => ['!value' => '0']],
       ],
-    ];
-
-    // Add a hidden input to control state of other items.
-    $form['validate']['validated'] = [
-      '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('validated', '0'),
     ];
 
     // 'actions' are within the 'validate' container in order for the
@@ -763,8 +816,6 @@ class RecordCleanerUI extends FormBase {
           'message' => $this->t('Validating...'),
         ],
       ],
-      //'#submit' => ['::validate'],
-      //'#validate' => ['::validateSrefForm'],
     ];
 
     $form['validate']['actions']['next'] = [
@@ -772,7 +823,7 @@ class RecordCleanerUI extends FormBase {
       '#button_type' => 'primary',
       '#value' => $this->t('Next'),
       '#states' => ['enabled' =>
-        ['input[name="validated"]' => ['value' => '1']]
+        ['input[name="result"]' => ['value' => 'pass']]
       ],
       '#submit' => ['::forwardFromValidateForm'],
     ];
@@ -792,36 +843,20 @@ class RecordCleanerUI extends FormBase {
 
   public function saveValidateValues(FormStateInterface $form_state) {
     $form_state->set('validate_values', [
-      'validated' => $form_state->getValue('validated'),
+      'result' => $form_state->getValue('result'),
     ]);
   }
 
   public function validateCallback(array &$form, FormStateInterface $form_state) {
-    // Bundle all settings needed for validation.
-    $settings['upload'] = $form_state->get('upload_values');
-    $settings['validate'] = $form_state->get('file_validate');
-    $settings += $form_state->get('mapping_values') +
-      $form_state->get('sref_values');
+    // Store mappings of function to column in uploaded file.
+    // Note, this is not sticking in the form_state.
+    $mappings = $this->getUploadMappings($form_state);
+    $form_state->set(['file_upload', 'mappings'], $mappings);
+    // Determine columns in output file.
+    $columns = $this->getValidateColumns($form_state);
+    $form_state->set(['file_validate', 'columns'], $columns);
 
-    // Send to the csv helper service.
-    $errors = $this->csvHelper->validate($settings);
-
-    // Output results.
-    if (count($errors) == 0) {
-      $result = 'Validation successful.';
-      $validated = '1';
-    }
-    else {
-      $result = print_r($errors, TRUE);
-      $validated = '0';
-    }
-
-    $form_state->setValue('validated', $validated);
-
-    $form['validate']['result']['#value'] = $result;
-    $form['validate']['validated']['#value'] = $validated;
-    return $form['validate'];
-
+    return $this->submitCallback($form, $form_state, 'validate');
   }
 
 /********************* VERIFICATION FORM *********************/
@@ -830,7 +865,7 @@ class RecordCleanerUI extends FormBase {
     // Check for a file entity to store verified results.
     if (!$form_state->has('file_verify')) {
       // Obtain the input file URI (private://{userid}/{filename}).
-      $fileInUri =  $form_state->get(['upload_values', 'uri']);
+      $fileInUri =  $form_state->get(['file_upload', 'uri']);
       // Create an output file URI by appending _verify to the input URI.
       // -4 means before the '.csv' characters.
       $fileOutUri = substr_replace($fileInUri, '_verify', -4, 0);
@@ -970,13 +1005,19 @@ class RecordCleanerUI extends FormBase {
       ],
     ];
 
-    $form['verify']['result'] = [
+    $form['verify']['output'] = [
       '#type' => 'html_tag',
       '#tag' => 'pre',
-      '#value' => print_r(
-        $form_state->get('mapping_values') +
-        $form_state->get('sref_values'), TRUE
-      ),
+      '#value' => '',
+    ];
+
+    // Add a hidden input to control state of other items.
+    // There is no change event for this input but it is taken in to account
+    // when Ajax content is loaded and initial states are set.
+    // It has a value of 0 which is changed to pass or fail after verification.
+    $form['verify']['result'] = [
+      '#type' => 'hidden',
+      '#default_value' => $form_state->getValue('result', '0'),
     ];
 
     // Add a link to the verified file.
@@ -988,14 +1029,8 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t('Verified file'),
       '#url' => Url::fromUri($url),
       '#states' => ['visible' =>
-        ['input[name="verified"]' => ['value' => '1']],
+        ['input[name="result"]' => ['!value' => '0']],
       ],
-    ];
-
-    // Add a hidden input to control state of other items.
-    $form['verify']['verified'] = [
-      '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('verified', '0'),
     ];
 
     $form['actions'] = [
@@ -1020,8 +1055,6 @@ class RecordCleanerUI extends FormBase {
           'message' => $this->t('Verifying...'),
         ],
       ],
-      //'#submit' => ['::validate'],
-      //'#validate' => ['::validateSrefForm'],
     ];
 
     return $form;
@@ -1049,12 +1082,503 @@ class RecordCleanerUI extends FormBase {
   public function saveVerifyValues(FormStateInterface $form_state) {
     $form_state->set('verify_values', [
       'rules' => $form_state->getValue('rules'),
-      'verified' => $form_state->getValue('verified'),
+      'result' => $form_state->getValue('result'),
     ]);
   }
 
   public function verifyCallback(array &$form, FormStateInterface $form_state) {
+    // Store mappings of function to column in validated file.
+    // Note, I wasn't expecting to have to do calculate columns again but it is
+    // not sticking in the form_state when calculated for validation.
+    $validateColumns = $this->getValidateColumns($form_state);
+    $mappings = $this->getValidateMappings($validateColumns);
+    $form_state->set(['file_validate', 'mappings'], $mappings);
+    // Determine columns in output file.
+    $columns = $this->getVerifyColumns($validateColumns);
+    $form_state->set(['file_verify', 'columns'], $columns);
 
+    return $this->submitCallback($form, $form_state, 'verify');
+  }
+
+/********************* UTILITY FUNCTIONS *********************/
+
+  /**
+   * Callback function for AJAX.
+   *
+   * Rebuilds the mapping field selectors.
+   */
+  public function mappingChangeCallback(array &$form, FormStateInterface $form_state) {
+    return $form['mappings'];
+  }
+
+  public function submitCallback(
+    array &$form, FormStateInterface $form_state, $action) {
+    if ($action == 'validate') {
+      $source = 'file_upload';
+      $output = 'file_validate';
+    }
+    else {
+      $source = 'file_validate';
+      $output = 'file_verify';
+    }
+
+    // Bundle all settings needed for submitting to service..
+    $settings['action'] = $action;
+    $settings['source'] = $form_state->get($source);
+    $settings['output'] = $form_state->get($output);
+    $settings['sref'] = [
+      'type' => $form_state->get(['sref_values', 'sref_type']),
+      'nr_coords' => $form_state->get(['sref_values', 'nr_coords']),
+      'precision_value' => $form_state->get(['sref_values', 'precision_value']),
+    ];
+    switch ($settings['sref']['type']) {
+      case 'grid':
+        $srid = $form_state->get(['sref_values', 'sref_grid']);
+        break;
+      case 'en':
+        $srid = $form_state->get(['sref_values', 'sref_en']);
+        break;
+      case 'latlon':
+        $srid = $form_state->get(['sref_values', 'sref_latlon']);
+        break;
+    }
+    $settings['sref']['srid'] = $srid;
+
+    if ($action == 'verify') {
+      $settings['org_group_rules'] = $this->getOrgGroupRules($form);
+    }
+
+    // Send to the csv helper service.
+    $errors = $this->csvHelper->submit($settings);
+
+    // Output results.
+    if (count($errors) == 0) {
+      $output = "$action successful.";
+      $result = 'pass';
+    }
+    else {
+      $output = print_r($errors, TRUE);
+      $result = 'fail';
+    }
+
+    $form_state->setValue('result', $result);
+
+    $form[$action]['output']['#value'] = $output;
+    $form[$action]['result']['#value'] = $result;
+    return $form[$action];
+
+  }
+
+  public function moveForward(FormStateInterface $form_state) {
+    $this->move($form_state, 1);
+  }
+
+  public function moveBack(FormStateInterface $form_state) {
+    $this->move($form_state, -1);
+  }
+
+  public function move(FormStateInterface $form_state, int $increment) {
+    $stepNum = $form_state->get('step_num') + $increment;
+    $step = $this->steps[$stepNum];
+
+    // Restore form values previously set.
+    if ($form_state->has("{$step}_values")) {
+      $form_state->setValues($form_state->get("{$step}_values"));
+    }
+
+    // Change step.
+    $form_state
+      ->set('step_num', $stepNum)
+      ->setRebuild(TRUE);
+  }
+
+  public function getUnusedColumns(FormStateInterface $form_state) {
+
+    // Each of the selectors which map columns in the CSV file to the
+    // required fields has its options recalculated every time the form is
+    // built. The options are keyed by column number and the value is the
+    // column heading from the first row of the CSV file.
+    $unusedColumns = $form_state->get(['file_upload', 'columns']);
+
+    $idFieldKey = $form_state->getValue('id_field') ??
+      $form_state->get(['mapping_values', 'id_field']);
+    $dateFieldKey = $form_state->getValue('date_field') ??
+      $form_state->get(['mapping_values', 'date_field']);
+    $tvkFieldKey = $form_state->getValue('tvk_field') ??
+      $form_state->get(['mapping_values', 'tvk_field']);
+    $vcFieldKey = $form_state->getValue('vc_field') ??
+      $form_state->get(['mapping_values', 'vc_field']);
+    $stageFieldKey = $form_state->getValue('stage_field') ??
+      $form_state->get(['mapping_values', 'stage_field']);
+    $coord1FieldKey = $form_state->getValue('coord1_field') ??
+      $form_state->get(['sref_values', 'coord1_field']);
+    $coord2FieldKey = $form_state->getValue('coord2_field') ??
+      $form_state->get(['sref_values', 'coord2_field']);
+    $precisionFieldKey = $form_state->getValue(['precision_field']) ??
+      $form_state->get(['sref_values', 'precision_field']);
+
+    if (isset($idFieldKey) && $idFieldKey != 'auto') {
+      unset($unusedColumns[$idFieldKey]);
+    }
+    if (isset($dateFieldKey)) {
+      unset($unusedColumns[$dateFieldKey]);
+    }
+    if (isset($tvkFieldKey)) {
+      unset($unusedColumns[$tvkFieldKey]);
+    }
+    if (isset($vcFieldKey)) {
+      unset($unusedColumns[$vcFieldKey]);
+    }
+    if (isset($stageFieldKey)) {
+      unset($unusedColumns[$stageFieldKey]);
+    }
+    if (isset($coord1FieldKey)) {
+      unset($unusedColumns[$coord1FieldKey]);
+    }
+    if (isset($coord2FieldKey)) {
+      unset($unusedColumns[$coord2FieldKey]);
+    }
+    if (isset($precisionFieldKey) && $precisionFieldKey != 'manual') {
+      unset($unusedColumns[$precisionFieldKey]);
+    }
+
+    // On the additional step we want to show any columns that are not selected
+    // as mapping on to a standard field. However, if we select them on
+    // the additional step, we don't want them being available for selection
+    // on previous steps.
+    $step = $this->steps[$form_state->get('step_num')];
+    if ($step != 'additional') {
+      $additionalFieldsKeys = $form_state->get(['additional_values', 'additional_fields']);
+      if (isset($additionalFieldsKeys)) {
+        foreach ($additionalFieldsKeys as $key) {
+          unset($unusedColumns[$key]);
+        }
+      }
+    }
+    return $unusedColumns;
+  }
+
+  public function getSettingsSummary(FormStateInterface $form_state) {
+    $summary = [];
+    $fileColumns = $form_state->get(['file_upload', 'columns']);
+
+    // MAPPING VALUES.
+    $title = $this->t("Unique Record Key Field");
+    $colNum = $form_state->get(['mapping_values', 'id_field']);
+    $value = (($colNum == 'auto') ?
+      $this->t('Auto Row Number') : $fileColumns[$colNum]
+    );
+    $summary[] = [$title, $value];
+
+    $title = $this->t("Date Field");
+    $colNum = $form_state->get(['mapping_values', 'date_field']);
+    $summary[] = [$title, $fileColumns[$colNum]];
+
+    $title = $this->t("Taxon Version Key Field");
+    $colNum = $form_state->get(['mapping_values', 'tvk_field']);
+    $summary[] = [$title, $fileColumns[$colNum]];
+
+    $title = $this->t("Vice County");
+    $colNum = $form_state->get(['mapping_values', 'vc_field']);
+    if (is_numeric($colNum)) {
+      $summary[] = [$title, $fileColumns[$colNum]];
+    }
+
+    $title = $this->t("Life Stage Field");
+    $colNum = $form_state->get(['mapping_values', 'stage_field']);
+    if (is_numeric($colNum)) {
+      $summary[] = [$title, $fileColumns[$colNum]];
+    }
+
+    // SREF VALUES.
+    $srefType = $form_state->get(['sref_values', 'sref_type']);
+    switch ($srefType) {
+      case 'grid':
+        $title = $this->t("Spatial Reference Type");
+        $summary[] = [$title, $this->t('Grid Reference')];
+
+        $title = $this->t("Grid Reference System");
+        $system = $form_state->get(['sref_values', 'sref_grid']);
+        $summary[] = [$title,$this->gridSystems[$system]];
+
+        $title = $this->t("Grid Reference Field");
+        $colNum = $form_state->get(['sref_values', 'coord1_field']);
+        $summary[] = [$title, $fileColumns[$colNum]];
+
+        break;
+      case 'en':
+        $title = $this->t("Sref Type");
+        $summary[] = [$title, $this->t('Easting and Northing')];
+
+        $title = $this->t("Coordinate System");
+        $system = $form_state->get(['sref_values', 'sref_en']);
+        $summary[] = [$title, $this->enSystems[$system]];
+
+        switch ($form_state->get(['sref_values', 'nr_coords'])) {
+          case '1':
+            $title = $this->t("Coordinate Field");
+            $colNum = $form_state->get(['sref_values', 'coord1_field']);
+            $summary[] = [$title, $fileColumns[$colNum]];
+            break;
+          case '2':
+            $title = $this->t("Easting Field");
+            $colNum = $form_state->get(['sref_values', 'coord1_field']);
+            $summary[] = [$title, $fileColumns[$colNum]];
+
+            $title = $this->t("Northing Field");
+            $colNum = $form_state->get(['sref_values', 'coord2_field']);
+            $summary[] = [$title, $fileColumns[$colNum]];
+            break;
+        }
+
+        $colNum = $form_state->get(['sref_values', 'precision_field']);
+        if ($colNum == 'manual') {
+          $title = $this->t("Manual Precision");
+          $value = $form_state->get(['sref_values', 'precision_value']);
+          $summary[] = [$title, $value];
+        }
+        else {
+          $title = $this->t("Precision Field");
+          $summary[] = [$title, $fileColumns[$colNum]];
+        }
+        break;
+      case 'latlon':
+        $title = $this->t("Sref Type");
+        $summary[] = [$title, $this->t('Lat/Lon')];
+
+
+        $title = $this->t("Coordinate System");
+        $system = $form_state->get(['sref_values', 'sref_latlon']);
+        $summary[] = [$title, $this->latlonSystems[$system]];
+
+        switch ($form_state->get(['sref_values', 'nr_coords'])) {
+          case '1':
+            $title = $this->t("Coordinate Field");
+            $colNum = $form_state->get(['sref_values', 'coord1_field']);
+            $summary[] = [$title, $fileColumns[$colNum]];
+            break;
+          case '2':
+            $title = $this->t("Longitude Field");
+            $colNum = $form_state->get(['sref_values', 'coord1_field']);
+            $summary[] = [$title, $fileColumns[$colNum]];
+
+            $title = $this->t("Latitude Field");
+            $colNum = $form_state->get(['sref_values', 'coord2_field']);
+            $summary[] = [$title, $fileColumns[$colNum]];
+            break;
+        }
+
+        $colNum = $form_state->get(['sref_values', 'precision_field']);
+        if ($colNum == 'manual') {
+          $title = $this->t("Manual Precision");
+          $value = $form_state->get(['sref_values', 'precision_value']);
+          $summary[] = [$title, $value];
+        }
+        else {
+          $title = $this->t("Precision Field");
+          $summary[] = [$title, $fileColumns[$colNum]];
+        }
+        break;
+    }
+
+    // ADDITIONAL VALUES.
+    $title = $this->t("Additional Fields");
+    $colNums = $form_state->get(['additional_values', 'additional_fields']);
+    $values = [];
+    foreach($colNums as $colNum) {
+      if (is_numeric($colNum) && is_string($colNum)) {
+        $values[] = $fileColumns[$colNum];
+      }
+    }
+    $value = implode(", ", $values);
+    if (strlen($value) > 0) {
+      $summary[] = [$title, $value];
+    }
+
+    return $summary;
+  }
+
+  /**
+   * Determine the columns in the validation output file.
+   *
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *
+   * @return array An array of columns in the order they appear in the file.
+   * Each element is an array [
+   *   'name' => string The column title.
+   *   'function' => string The purpose of the column.
+   *   'column' => int|NULL The index of the column in the upload file.
+   * ]
+   *
+   */
+  public function getValidateColumns(FormStateInterface $form_state) {
+    $fields = [
+      'id' => 'mapping_values',
+      'date' => 'mapping_values',
+      'tvk' => 'mapping_values',
+      'vc' => 'mapping_values',
+      'stage' => 'mapping_values',
+      'coord1' =>'sref_values',
+      'coord2' => 'sref_values',
+      'precision' => 'sref_values',
+    ];
+    // Create a mappings array where the key is the column number in the source
+    // file and the value is an array of the column name and its function.
+    foreach($fields as $field => $store) {
+      $colNum = $form_state->get([$store, "{$field}_field"]);
+      // A select value of '0' is valid but '' indicates not set.
+      // An id of 'auto' or a precision of 'manual' means there is no mapping
+      // for those fields.
+      if (is_numeric($colNum)) {
+        $mappings[$colNum] = [
+          'name' => $form_state->get(['file_upload', 'columns', $colNum]),
+          'function' => $field,
+        ];
+      }
+    }
+
+    // Add mappings for additional fields.
+    foreach($form_state->get(['additional_values', 'additional_fields']) as $colNum) {
+      // A checkbox value of '0' is valid but 0 (int) indicates not set.
+      if (is_string($colNum) && is_numeric($colNum)) {
+        $mappings[$colNum] = [
+          'name' => $form_state->get(['file_upload', 'columns', $colNum]),
+          'function' => 'additional',
+        ];
+      }
+    }
+
+    // Sort mappings by key so columns are output in same order as uploaded.
+    ksort($mappings);
+
+    // Build the full list of columns in validate file. The value is an array of
+    // the column name, its function and its column number in the source file.
+    $columns = [];
+
+    // If auto-numbering rows, insert ID column first.
+    if ($form_state->get(['mapping_values', 'id_field']) == 'auto') {
+      $columns[] = [
+        'name' => 'Id',
+        'function' => 'id',
+        'column' => NULL,
+      ];
+    }
+
+    // Next append all the columns from the uploaded file.
+    foreach($mappings as $colNum => $value) {
+      $columns[] = $value + ['column' => $colNum];
+    }
+
+    // Append the columns returned from the service.
+    $columns[] = [
+      'name' => 'Name',
+      'function' => 'name',
+      'column' => NULL,
+    ];
+
+    $columns[] = [
+      'name' => 'Id Difficulty',
+      'function' => 'id_difficulty',
+      'column' => NULL,
+    ];
+
+    $columns[] = [
+      'name' => 'Pass',
+      'function' => 'ok',
+      'column' => NULL,
+    ];
+
+    $columns[] = [
+      'name' => 'Messages',
+      'function' => 'messages',
+      'column' => NULL,
+    ];
+
+    return $columns;
+  }
+
+  /**
+   * Determine the columns in the verification output file.
+   *
+   * Validation and verification files are very similar.
+   *
+   * @param array $validateColumns
+   *
+   * @return array An array of columns in the order they appear in the file.
+   * Each element is an array [
+   *   'name' => string The column title.
+   *   'function' => string The purpose of the column.
+   *   'column' => int|NULL The index of the column in the validate file.
+   * ]
+   *
+   */
+  public function getVerifyColumns(array $validateColumns) {
+    $columns = [];
+    foreach($validateColumns as $colNum => $column) {
+      // Omit ID difficulty from verification file.
+      if ($column['function'] == 'id_difficulty') {
+        continue;
+      }
+      $column['column'] = $colNum;
+      $columns[] = $column;
+    }
+
+    return $columns;
+  }
+
+  /**
+   * Create mapping from field to column number in validate file.
+   *
+   * This is needed to pick the correct data from the validated file to insert
+   * in to the submission to the verification service.
+   */
+  public function getValidateMappings($columns) {
+    $mappings = [];
+    $functions = [
+      'id', 'date', 'tvk', 'vc', 'stage', 'coord1', 'coord2', 'precision'
+    ];
+    foreach($columns as $colNum => $column) {
+      $colFunction = $column['function'];
+      if (in_array($colFunction, $functions)) {
+        $mappings[$colFunction . '_field'] = $colNum;
+      }
+    }
+    return $mappings;
+  }
+
+  /**
+   * Create mapping from field to column number in uploaded file.
+   *
+   * This is needed to pick the correct data from the uploaded file to insert
+   * in to the submission to the validation service.
+   */
+  public function getUploadMappings(FormStateInterface $form_state) {
+    $mappings = [];
+    $fields = [
+      'id_field' => 'mapping_values',
+      'date_field' => 'mapping_values',
+      'tvk_field' => 'mapping_values',
+      'vc_field' => 'mapping_values',
+      'stage_field' => 'mapping_values',
+      'coord1_field' =>'sref_values',
+      'coord2_field' => 'sref_values',
+      'precision_field' => 'sref_values',
+    ];
+    // Create a mappings array where the key is the function and the value is
+    // the column number in the source file
+    foreach($fields as $field => $store) {
+      $colNum = $form_state->get([$store, "$field"]);
+      // A select value of '0' is valid but '' indicates not set.
+      // An id of 'auto' or a precision of 'manual' means there is no mapping
+      // for those fields.
+      if (is_numeric($colNum)) {
+        $mappings[$field] = $colNum;
+      }
+    }
+    return $mappings;
+  }
+
+  public function getOrgGroupRules(array &$form) {
     // Construct org_group_rules_list required by API.
     $orgGroupRules = [];
     $orgContainer = $form['rules'];
@@ -1092,126 +1616,7 @@ class RecordCleanerUI extends FormBase {
       }
     }
 
-    // Bundle all settings needed for verification.
-    $settings['validate'] = $form_state->get('file_validate');
-    $settings['verify'] = $form_state->get('file_verify');
-    $settings['org_group_rules'] = $orgGroupRules;
-    $settings += $form_state->get('mapping_values');
-    $settings += $form_state->get('sref_values') ;
-
-  // Send to the csv helper service.
-  $errors = $this->csvHelper->verify($settings);
-
-  // Output results.
-  if (count($errors) == 0) {
-    $result = 'Verification successful.';
-    $verified = '1';
-  }
-  else {
-    $result = print_r($errors, TRUE);
-    $verified = '0';
-  }
-
-  $form_state->setValue('verified', $verified);
-
-  $form['verify']['result']['#value'] = $result;
-  $form['verify']['verified']['#value'] = $verified;
-  return $form['verify'];
-
-}
-  /********************* UTILITY FUNCTIONS *********************/
-
-  /**
-   * Callback function for AJAX.
-   *
-   * Rebuilds the mapping field selectors.
-   */
-  public function mappingChangeCallback(array &$form, FormStateInterface $form_state) {
-    return $form['mappings'];
-  }
-
-  public function moveForward(FormStateInterface $form_state) {
-    $this->move($form_state, 1);
-  }
-
-  public function moveBack(FormStateInterface $form_state) {
-    $this->move($form_state, -1);
-  }
-
-  public function move(FormStateInterface $form_state, int $increment) {
-    $stepNum = $form_state->get('step_num') + $increment;
-    $step = $this->steps[$stepNum];
-
-    // Restore form values previously set.
-    if ($form_state->has("{$step}_values")) {
-      $form_state->setValues($form_state->get("{$step}_values"));
-    }
-
-    // Change step.
-    $form_state
-      ->set('step_num', $stepNum)
-      ->setRebuild(TRUE);
-  }
-
-  public function getUnusedColumns(FormStateInterface $form_state) {
-
-    // Each of the selectors which map columns in the CSV file to the
-    // required fields has its options recalculated every time the form is
-    // built. The options are keyed by column number and the value is the
-    // column heading from the first row of the CSV file.
-    $unusedColumns = $form_state->get('file_columns');
-
-    $idFieldKey = $form_state->getValue('id_field') ??
-      $form_state->get(['mapping_values', 'id_field']);
-    $dateFieldKey = $form_state->getValue('date_field') ??
-      $form_state->get(['mapping_values', 'date_field']);
-    $tvkFieldKey = $form_state->getValue('tvk_field') ??
-      $form_state->get(['mapping_values', 'tvk_field']);
-    $vcFieldKey = $form_state->getValue('vc_field') ??
-      $form_state->get(['mapping_values', 'vc_field']);
-    $coord1FieldKey = $form_state->getValue('coord1_field') ??
-      $form_state->get(['sref_values', 'coord1_field']);
-    $coord2FieldKey = $form_state->getValue('coord2_field') ??
-      $form_state->get(['sref_values', 'coord2_field']);
-    $precisionFieldKey = $form_state->getValue(['precision_field']) ??
-      $form_state->get(['sref_values', 'precision_field']);
-
-    if (isset($idFieldKey) && $idFieldKey != 'auto') {
-      unset($unusedColumns[$idFieldKey]);
-    }
-    if (isset($dateFieldKey)) {
-      unset($unusedColumns[$dateFieldKey]);
-    }
-    if (isset($tvkFieldKey)) {
-      unset($unusedColumns[$tvkFieldKey]);
-    }
-    if (isset($vcFieldKey)) {
-      unset($unusedColumns[$vcFieldKey]);
-    }
-    if (isset($coord1FieldKey)) {
-      unset($unusedColumns[$coord1FieldKey]);
-    }
-    if (isset($coord2FieldKey)) {
-      unset($unusedColumns[$coord2FieldKey]);
-    }
-    if (isset($precisionFieldKey) && $precisionFieldKey != 'manual') {
-      unset($unusedColumns[$precisionFieldKey]);
-    }
-
-    // On the additional step we want to show any columns that are not selected
-    // as mapping on to a standard field. However, if we select them on
-    // the additional step, we don't want them being available for selection
-    // on previous steps.
-    $step = $this->steps[$form_state->get('step_num')];
-    if ($step != 'additional') {
-      $additionalFieldsKeys = $form_state->get(['additional_values', 'additional_fields']);
-      if (isset($additionalFieldsKeys)) {
-        foreach ($additionalFieldsKeys as $key) {
-          unset($unusedColumns[$key]);
-        }
-      }
-    }
-    return $unusedColumns;
+    return $orgGroupRules;
   }
 
   /**
