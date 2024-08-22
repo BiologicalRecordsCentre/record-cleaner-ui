@@ -1,8 +1,9 @@
 {
-    "name": "drupal/record-cleaner",
-    "type": "drupal-module",
-    "description": "A description",
-    "license": "GPL-2.0-or-later",
+    "name": "biologicalrecordscentre/record-cleaner-ui",
+    "type": "drupal-custom-module",
+    "description": "A user interface to the record cleaner service",
+    "keywords": ["Drupal", "Record", "Cleaner"],
+    "license": "MIT",
     "repositories": {
         "drupal": {
             "type": "composer",
@@ -17,7 +18,8 @@
         "drupal/core-dev": "^10",
         "php-parallel-lint/php-parallel-lint": "^1.2",
         "drush/drush": "^12.5",
-        "drupal/admin_toolbar": "^3.4"
+        "drupal/admin_toolbar": "^3.4",
+        "drupal/imce": "^3.1"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
@@ -64,8 +66,5 @@
                 "drush.services.yml": "^9 || ^10 || ^11"
             }
         }
-    },
-    "require": {
-        "drupal/imce": "^3.1"
     }
 }
