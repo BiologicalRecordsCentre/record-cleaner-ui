@@ -1,6 +1,6 @@
 {
     "name": "biologicalrecordscentre/record-cleaner-ui",
-    "type": "drupal-custom-module",
+    "type": "drupal-module",
     "description": "A user interface to the record cleaner service",
     "keywords": ["Drupal", "Record", "Cleaner"],
     "license": "MIT",
