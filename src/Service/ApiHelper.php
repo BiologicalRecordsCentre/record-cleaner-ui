@@ -13,6 +13,8 @@ use Drupal\Core\Http\ClientFactory;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\ServerException;
 
 class RecordCleanerApiException extends \Exception {}
 
@@ -75,9 +77,24 @@ class ApiHelper {
       $msg = $this->t("Could not connect to service. Please try again later.");
       throw new RecordCleanerApiException($msg);
     }
-    catch (RequestException $e) {
+    catch (ClientException $e) {
+      // 400 level errors
       $msg = $e->getResponse()->getBody()->getContents();
       $this->logger->error($msg);
+      throw new RecordCleanerApiException($msg);
+    }
+    catch (ServerException $e) {
+      // 500 level errors
+      $msg = $e->getMessage();
+      $this->logger->error($msg);
+      $msg = $this->t("Unable to process request. Please check its validity.");
+      throw new RecordCleanerApiException($msg);
+    }
+    catch (RequestException $e) {
+      // Eg. An SSL certificate error.
+      $msg = $e->getMessage();
+      $this->logger->error($msg);
+      $msg = $this->t("Could not connect to service. Please try again later.");
       throw new RecordCleanerApiException($msg);
     }
 
