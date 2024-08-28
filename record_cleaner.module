@@ -10,7 +10,6 @@ function record_cleaner_help($route_name, RouteMatchInterface $route_match) {
   $output = '';
   switch ($route_name) {
     case 'help.page.record_cleaner':
-      $output .= '<h2>' . t("Record Cleaner") . '</h2>';
       $output .= '<h3>' . t("About") . '</h3>';
 
       $output .= '<p>';
@@ -24,49 +23,48 @@ The verification rules have been written and are maintained by experts in their
 field and are limited in scope to the British Isles.");
       $output .= '</p>';
 
-      $output .= '<h3>' . t("Uses") . '</h3>';
-
-      $output .= '<h4>' . t("Service Status") . '</h4>';
+      $output .= '<h3>' . t("Configuration") . '</h3>';
       $output .= '<p>';
+      $output .= t("There are three settings to make in the <a href=':config'>
+      Configuration</a> page. These are the service URL, username, and
+      password.", [
+        ':config' => Url::fromRoute('record_cleaner.config')->toString()
+      ]);
+      $output .= '</p>';
+      $output .= '<ul><li>';
+      $output .= t("The service URL is a link to an instance of the
+      <a href=':service'>record cleaner service</a>.", [
+        ':service' => Url::fromUri('https://github.com/BiologicalRecordsCentre/record-cleaner-service')->toString()
+      ]);
+      $output .= '</li><li>';
+      $output .= t("The username and password are used to authenticate with
+      the service. An administrator of the service will have to create an
+      account for you and provide these details.");
+      $output .= '</li></ul>';
+
+
+      $output .= '<h3>' . t("Routes") . '</h3>';
+      $output .= '<p>';
+      $output .= t("The module adds three routes to your Drupal site. You will
+      probably want to add menu items for each of these routes.");
+      $output .= '</p>';
+      $output .= '<ul><li>';
+      $output .= t("The <a href=':intro'>introduction</a> page provides
+a brief overview of how to use Record Cleaner.", [
+        ':intro' => Url::fromRoute('record_cleaner')->toString()
+      ]);
+      $output .= '</li><li>';
       $output .= t("The service <a href=':status'>status</a> page provides
 details of the current status of the service.", [
         ':status' => Url::fromRoute('record_cleaner.status')->toString()
       ]);
-      $output .= '</p>';
-
-      $output .= '<h4>' . t("File Upload") . '</h4>';
-      $output .= '<p>';
-      $output .= t("The <a href=':upload'>upload</a> page is where you upload
-your CSV file before verification.", [
-        ':status' => Url::fromRoute('record_cleaner.upload')->toString()
+      $output .= '</li><li>';
+      $output .= t("The <a href=':ui'>cleaner wizard</a> is where you upload
+your CSV file and provide information about its contents so that validation
+and verification can be performed.", [
+        ':ui' => Url::fromRoute('record_cleaner.ui')->toString()
       ]);
-      $output .= '</p>';
-
-      $output .= '<p>';
-      $output .= t("The CSV file must contain a header row with column names.
-Each row needs to contain at least the following columns: ");
-      $output .= '<ul>';
-
-      $output .= '<li><b>' . t("Observation date. ") . '</b>';
-      $output .= t("This can be a specific date, or a date range.
-<a href=:dates>Read more</a>.", [
-        ':dates' => Url::fromUri('https://github.com/BiologicalRecordsCentre/record-cleaner-service/blob/main/docs/valid_date.md')->toString()
-]);
-      $output . '</li>';
-
-      $output .= '<li><b>' . t("Taxon version key or taxon name. ") . '</b>';
-      $output .= t("This identifes the organism that was observed. A taxon
-version key (TVK) is unambiguous whereas you may need to clarify the exact
-meaning of a taxon name.");
-      $output . '</li>';
-
-      $output .= '<li><b>' . t("Spatial reference. ") . '</b>';
-      $output .= t("This is where you made the observation. It might be a grid
-reference or a latitude and longitude.");
-      $output . '</li>';
-
-      $output .= '</p>';
-
+      $output .= '</li></ul>';
     }
 
   return $output;
