@@ -4,3 +4,6 @@ description: Provides a user interface to the record cleaner web service.
 package: Custom
 
 core_version_requirement: ^9.4 || ^10
+
+version: 0.0.3
+project: 'record_cleaner'
