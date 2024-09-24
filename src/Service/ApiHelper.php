@@ -46,7 +46,7 @@ class ApiHelper {
     $data = [
       'username' => $username,
       'password' => $password,
-      'grant_type' => '',
+      'grant_type' => 'password',
       'scope' => '',
       'client_id' => '',
       'client_secret' => '',
@@ -176,7 +176,7 @@ class ApiHelper {
     // Catch exceptions at the higher level in order to stop looping through
     // all the chunks if there is an error.
     $options = ['json' => $data];
-    return $this->request('POST', '/validate/records_by_tvk', $options, TRUE);
+    return $this->request('POST', '/validate', $options, TRUE);
   }
 
   public function verify($data) {
@@ -184,7 +184,7 @@ class ApiHelper {
     // Catch exceptions at the higher level in order to stop looping through
     // all the chunks if there is an error.
     $options = ['json' => $data];
-    return $this->request('POST', '/verify/records_by_tvk', $options, TRUE);
+    return $this->request('POST', '/verify', $options, TRUE);
   }
 }
 
