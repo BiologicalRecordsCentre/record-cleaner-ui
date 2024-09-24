@@ -25,7 +25,7 @@ class RecordCleanerUI extends FormBase {
   use DependencySerializationTrait;
 
   public $steps =  [
-    'upload', 'mapping', 'sref', 'additional', 'validate', 'verify'
+    'upload', 'mapping', 'organism', 'sref', 'additional', 'validate', 'verify'
   ];
 
   public $gridSystems;
@@ -35,7 +35,7 @@ class RecordCleanerUI extends FormBase {
   public $latlonSystems;
 
   /**
-   * Constructs a new FileExampleReadWriteForm object.
+   * Constructs a new RecordCleanerUI object.
    *
    * @param \Drupal\record_cleaner\Service\ApiHelper $apiHelper
    *   The record_cleaner API helper service.
@@ -115,6 +115,9 @@ class RecordCleanerUI extends FormBase {
         break;
       case 'mapping':
         return $this->buildMappingForm($form, $form_state);
+        break;
+      case 'organism':
+        return $this->buildOrganismForm($form, $form_state);
         break;
       case 'sref':
         return $this->buildSrefForm($form, $form_state);
@@ -220,12 +223,6 @@ class RecordCleanerUI extends FormBase {
     $dateFieldOptions = $option + $unusedColumns;
     ksort($dateFieldOptions);
 
-    $key = $form_state->getValue('tvk_field');
-    $option = is_numeric($key) ?
-      [$key => $fileColumns[$key]] : [];
-    $tvkFieldOptions = $option + $unusedColumns;
-    ksort($tvkFieldOptions);
-
     $key = $form_state->getValue('vc_field');
     $option = is_numeric($key) ?
       [$key => $fileColumns[$key]] : [];
@@ -273,22 +270,6 @@ class RecordCleanerUI extends FormBase {
       '#empty_option' => $this->t('- Select -'),
       '#options' => $dateFieldOptions,
       '#default_value' => $form_state->getValue('date_field'),
-      '#ajax' => [
-        'callback' => '::mappingChangeCallback',
-        'event' => 'change',
-        'wrapper' => 'record_cleaner_mappings',
-      ]
-    ];
-
-    $form['mappings']['tvk_field'] = [
-      '#type' => 'select',
-      '#title' => $this->t("Taxon Version Key"),
-      '#description' => $this->t("Please select the field in the source data
-      which holds the taxon version key."),
-      '#required' => TRUE,
-      '#empty_option' => $this->t('- Select -'),
-      '#options' => $tvkFieldOptions,
-      '#default_value' => $form_state->getValue('tvk_field'),
       '#ajax' => [
         'callback' => '::mappingChangeCallback',
         'event' => 'change',
@@ -363,12 +344,130 @@ class RecordCleanerUI extends FormBase {
     $form_state->set('mapping_values', [
       'id_field' => $form_state->getValue('id_field'),
       'date_field' => $form_state->getValue('date_field'),
-      'tvk_field' => $form_state->getValue('tvk_field'),
       'vc_field' => $form_state->getValue('vc_field'),
       'stage_field' => $form_state->getValue('stage_field'),
     ]);
   }
 
+/********************* ORGANISM FORM *********************/
+  public function buildOrganismForm(array $form, FormStateInterface $form_state) {
+
+    $organismType = $form_state->getValue('organism_type');
+
+    // Determine title and description for organism form elements.
+    $title = $description = '';
+    switch ($organismType) {
+      case 'tvk':
+        $title = $this->t("TVK");
+        $description = $this->t("Please select the column in the source data
+        which contains the taxon version key.");
+          break;
+      case 'name':
+        $title = $this->t("Name");
+        $description = $this->t("Please select the column in the source data
+        which contains the taxon name.");
+          break;
+    }
+
+    // Each of the selectors which map columns in the CSV file to the
+    // required fields has its options recalculated every time the form is
+    // built. The options are keyed by column number and the value is the
+    // column heading from the first row of the CSV file.
+    $fileColumns = $form_state->get(['file_upload', 'columns']);
+    $unusedColumns = $this->getUnusedColumns($form_state);
+
+    // Create sorted list of options for tvk.
+    $key = $form_state->getValue('organism_field');
+    $option = is_numeric($key) ?
+      [$key => $fileColumns[$key]] : [];
+    $OrganismFieldOptions = $option + $unusedColumns;
+    ksort($OrganismFieldOptions);
+
+    // Create each of the form elements.
+    $selectOrganismType = [
+      '#type' => 'select',
+      '#title' => $this->t("Taxon Field Type"),
+      '#description' => $this->t("Please select the taxon field type."),
+      '#required' => TRUE,
+      '#options' => [
+        'tvk' => $this->t('Taxon Version Key (e.g.NHMSYS0000530739)'),
+        'name' => $this->t('Taxon Name (e.g. Erithacus rubecula or Robin)'),
+      ],
+      '#default_value' => $form_state->getValue('organism_type'),
+      '#ajax' => [
+        'callback' => '::mappingChangeCallback',
+        'event' => 'change',
+        'wrapper' => 'record_cleaner_mappings',
+      ]
+    ];
+
+    $containerMappings = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'record_cleaner_mappings',
+      ],
+    ];
+
+    $selectOrganism = [
+      '#type' => 'select',
+      '#title' => $title,
+      '#description' => $description,
+      '#required' => TRUE,
+      '#empty_option' => $this->t('- Select -'),
+      '#options' => $OrganismFieldOptions,
+      '#default_value' => $form_state->getValue('organism_field'),
+      '#ajax' => [
+        'callback' => '::mappingChangeCallback',
+        'event' => 'change',
+        'wrapper' => 'record_cleaner_mappings',
+      ]
+    ];
+
+    // Build the form according to current selections.
+    $form['organism_type'] = $selectOrganismType;
+    $form['mappings'] = $containerMappings;
+
+    if (isset($organismType)) {
+      $form['mappings']['organism_field'] = $selectOrganism;
+    }
+
+    $form['actions'] = [
+      '#type' => 'actions',
+    ];
+
+    $form['actions']['back'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Back'),
+      '#submit' => ['::backFromOrganismForm'],
+      //#limit_validation_errors will break things.
+    ];
+    $form['actions']['next'] = [
+      '#type' => 'submit',
+      '#button_type' => 'primary',
+      '#value' => $this->t('Next'),
+      '#submit' => ['::forwardFromOrganismForm'],
+      //'#validate' => ['::validateOrganismForm'],
+    ];
+
+    return $form;
+  }
+
+  public function backFromOrganismForm(array &$form, FormStateInterface $form_state) {
+    $this->saveOrganismValues($form_state);
+    $this->moveBack($form_state);
+  }
+
+  public function forwardFromOrganismForm(array &$form, FormStateInterface $form_state) {
+    $this->saveOrganismValues($form_state);
+    $this->moveForward($form_state);
+  }
+
+  public function saveOrganismValues(FormStateInterface $form_state) {
+    $form_state->set('organism_values', [
+      'organism_type' => $form_state->getValue('organism_type'),
+      'organism_field' => $form_state->getValue('organism_field'),
+    ]);
+  }
 
 /********************* SPATIAL REFERENCE FORM *********************/
 
@@ -1126,6 +1225,9 @@ class RecordCleanerUI extends FormBase {
     $settings['action'] = $action;
     $settings['source'] = $form_state->get($source);
     $settings['output'] = $form_state->get($output);
+    $settings['organism'] = [
+      'type' => $form_state->get(['organism_values', 'organism_type']),
+    ];
     $settings['sref'] = [
       'type' => $form_state->get(['sref_values', 'sref_type']),
       'nr_coords' => $form_state->get(['sref_values', 'nr_coords']),
@@ -1204,12 +1306,12 @@ class RecordCleanerUI extends FormBase {
       $form_state->get(['mapping_values', 'id_field']);
     $dateFieldKey = $form_state->getValue('date_field') ??
       $form_state->get(['mapping_values', 'date_field']);
-    $tvkFieldKey = $form_state->getValue('tvk_field') ??
-      $form_state->get(['mapping_values', 'tvk_field']);
     $vcFieldKey = $form_state->getValue('vc_field') ??
       $form_state->get(['mapping_values', 'vc_field']);
     $stageFieldKey = $form_state->getValue('stage_field') ??
       $form_state->get(['mapping_values', 'stage_field']);
+    $organismFieldKey = $form_state->getValue('organism_field') ??
+      $form_state->get(['organism_values', 'organism_field']);
     $coord1FieldKey = $form_state->getValue('coord1_field') ??
       $form_state->get(['sref_values', 'coord1_field']);
     $coord2FieldKey = $form_state->getValue('coord2_field') ??
@@ -1223,14 +1325,14 @@ class RecordCleanerUI extends FormBase {
     if (isset($dateFieldKey)) {
       unset($unusedColumns[$dateFieldKey]);
     }
-    if (isset($tvkFieldKey)) {
-      unset($unusedColumns[$tvkFieldKey]);
-    }
     if (isset($vcFieldKey)) {
       unset($unusedColumns[$vcFieldKey]);
     }
     if (isset($stageFieldKey)) {
       unset($unusedColumns[$stageFieldKey]);
+    }
+    if (isset($organismFieldKey)) {
+      unset($unusedColumns[$organismFieldKey]);
     }
     if (isset($coord1FieldKey)) {
       unset($unusedColumns[$coord1FieldKey]);
@@ -1274,11 +1376,7 @@ class RecordCleanerUI extends FormBase {
     $colNum = $form_state->get(['mapping_values', 'date_field']);
     $summary[] = [$title, $fileColumns[$colNum]];
 
-    $title = $this->t("Taxon Version Key Field");
-    $colNum = $form_state->get(['mapping_values', 'tvk_field']);
-    $summary[] = [$title, $fileColumns[$colNum]];
-
-    $title = $this->t("Vice County");
+    $title = $this->t("Vice County Field");
     $colNum = $form_state->get(['mapping_values', 'vc_field']);
     if (is_numeric($colNum)) {
       $summary[] = [$title, $fileColumns[$colNum]];
@@ -1288,6 +1386,25 @@ class RecordCleanerUI extends FormBase {
     $colNum = $form_state->get(['mapping_values', 'stage_field']);
     if (is_numeric($colNum)) {
       $summary[] = [$title, $fileColumns[$colNum]];
+    }
+
+    // ORGANISM VALUES.
+    $organismType = $form_state->get(['organism_values', 'organism_type']);
+    switch ($organismType) {
+      case 'tvk':
+        $title = $this->t("Organism Field Type");
+        $summary[] = [$title, $this->t('Taxon Version Key')];
+        $title = $this->t("TVK Field");
+        $colNum = $form_state->get(['organism_values', 'organism_field']);
+        $summary[] = [$title, $fileColumns[$colNum]];
+        break;
+      case 'name':
+        $title = $this->t("Organism Field Type");
+        $summary[] = [$title, $this->t('Taxon Name')];
+        $title = $this->t("Taxon Name Field");
+        $colNum = $form_state->get(['organism_values', 'organism_field']);
+        $summary[] = [$title, $fileColumns[$colNum]];
+        break;
     }
 
     // SREF VALUES.
@@ -1307,7 +1424,7 @@ class RecordCleanerUI extends FormBase {
 
         break;
       case 'en':
-        $title = $this->t("Sref Type");
+        $title = $this->t("Spatial Reference Type");
         $summary[] = [$title, $this->t('Easting and Northing')];
 
         $title = $this->t("Coordinate System");
@@ -1343,7 +1460,7 @@ class RecordCleanerUI extends FormBase {
         }
         break;
       case 'latlon':
-        $title = $this->t("Sref Type");
+        $title = $this->t("Spatial Reference Type");
         $summary[] = [$title, $this->t('Lat/Lon')];
 
 
@@ -1415,9 +1532,9 @@ class RecordCleanerUI extends FormBase {
     $fields = [
       'id' => 'mapping_values',
       'date' => 'mapping_values',
-      'tvk' => 'mapping_values',
       'vc' => 'mapping_values',
       'stage' => 'mapping_values',
+      'organism' => 'organism_values',
       'coord1' =>'sref_values',
       'coord2' => 'sref_values',
       'precision' => 'sref_values',
@@ -1470,11 +1587,20 @@ class RecordCleanerUI extends FormBase {
     }
 
     // Append the columns returned from the service.
-    $columns[] = [
-      'name' => 'Name',
-      'function' => 'name',
-      'column' => NULL,
-    ];
+    if ($form_state->get(['organism_values', 'organism_type']) == 'tvk') {
+      $columns[] = [
+        'name' => 'Name',
+        'function' => 'name',
+        'column' => NULL,
+      ];
+    }
+    elseif ($form_state->get(['organism_values', 'organism_type']) == 'name') {
+      $columns[] = [
+        'name' => 'TVK',
+        'function' => 'tvk',
+        'column' => NULL,
+      ];
+    }
 
     $columns[] = [
       'name' => 'Id Difficulty',
@@ -1557,9 +1683,9 @@ class RecordCleanerUI extends FormBase {
     $fields = [
       'id_field' => 'mapping_values',
       'date_field' => 'mapping_values',
-      'tvk_field' => 'mapping_values',
       'vc_field' => 'mapping_values',
       'stage_field' => 'mapping_values',
+      'organism_field' => 'organism_values',
       'coord1_field' =>'sref_values',
       'coord2_field' => 'sref_values',
       'precision_field' => 'sref_values',

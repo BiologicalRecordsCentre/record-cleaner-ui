@@ -223,6 +223,15 @@ class CsvHelper {
           $row[] = implode("\n", $record[$function]);
           break;
 
+        case 'organism':
+          if ($settings['organism']['type'] == 'tvk') {
+            $row[] = $record['tvk'];
+          }
+          elseif ($settings['organism']['type'] == 'name') {
+            $row[] = $record['name'];
+          }
+          break;
+
         case 'coord1':
           if ($settings['sref']['type'] == 'grid') {
             $row[] = $record['sref']['gridref'];
@@ -352,8 +361,14 @@ class CsvHelper {
       'id' => $idField == 'auto' ? $count : $row[$idField] ,
       'date' => $row[$mappings['date_field']],
       'sref' => $this->buildSrefSubmission($row, $settings),
-      'tvk' => $row[$mappings['tvk_field']],
     ];
+
+    if ($settings['organism']['type'] == 'tvk') {
+      $record['tvk'] = $row[$mappings['organism_field']];
+    }
+    elseif ($settings['organism']['type'] == 'name') {
+      $record['name'] = $row[$mappings['organism_field']];
+    }
 
     // Optional fields.
     if(array_key_exists('vc_field', $mappings)) {
