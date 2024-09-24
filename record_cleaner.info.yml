@@ -5,5 +5,5 @@ package: Custom
 
 core_version_requirement: ^9.4 || ^10
 
-version: 0.0.3
+version: 0.0.4
 project: 'record_cleaner'
