@@ -345,7 +345,7 @@ class CsvHelper {
   }
 
   /**
-   * Convert a CSV row to a data structure for the validation service.
+   * Convert a CSV row to a data structure for the record-cleaner service.
    *
    * @param $row The CSV row as an array.
    * @param $count The row number.
@@ -363,11 +363,11 @@ class CsvHelper {
       'sref' => $this->buildSrefSubmission($row, $settings),
     ];
 
-    if ($settings['organism']['type'] == 'tvk') {
-      $record['tvk'] = $row[$mappings['organism_field']];
+    if (array_key_exists('tvk_field', $mappings)) {
+      $record['tvk'] = $row[$mappings['tvk_field']];
     }
-    elseif ($settings['organism']['type'] == 'name') {
-      $record['name'] = $row[$mappings['organism_field']];
+    elseif (array_key_exists('name_field', $mappings)) {
+      $record['name'] = $row[$mappings['name_field']];
     }
 
     // Optional fields.

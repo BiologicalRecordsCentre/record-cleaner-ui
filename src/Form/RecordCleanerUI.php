@@ -1225,9 +1225,6 @@ class RecordCleanerUI extends FormBase {
     $settings['action'] = $action;
     $settings['source'] = $form_state->get($source);
     $settings['output'] = $form_state->get($output);
-    $settings['organism'] = [
-      'type' => $form_state->get(['organism_values', 'organism_type']),
-    ];
     $settings['sref'] = [
       'type' => $form_state->get(['sref_values', 'sref_type']),
       'nr_coords' => $form_state->get(['sref_values', 'nr_coords']),
@@ -1529,6 +1526,7 @@ class RecordCleanerUI extends FormBase {
    *
    */
   public function getValidateColumns(FormStateInterface $form_state) {
+    $mappings = [];
     $fields = [
       'id' => 'mapping_values',
       'date' => 'mapping_values',
@@ -1539,6 +1537,9 @@ class RecordCleanerUI extends FormBase {
       'coord2' => 'sref_values',
       'precision' => 'sref_values',
     ];
+
+    $organismType = $form_state->get(['organism_values', 'organism_type']);
+
     // Create a mappings array where the key is the column number in the source
     // file and the value is an array of the column name and its function.
     foreach($fields as $field => $store) {
@@ -1547,9 +1548,22 @@ class RecordCleanerUI extends FormBase {
       // An id of 'auto' or a precision of 'manual' means there is no mapping
       // for those fields.
       if (is_numeric($colNum)) {
+        // Organism is a special case. We want to be able to pick out the tvk
+        // column when it comes round to verification, whether it came from the
+        // original file or the validation service.
+        if ($field == 'organism' && $organismType == 'tvk') {
+          $function = 'tvk';
+        }
+        elseif ($field == 'organism' && $organismType == 'name') {
+          $function = 'name';
+        }
+        else {
+          $function = $field;
+        }
+
         $mappings[$colNum] = [
           'name' => $form_state->get(['file_upload', 'columns', $colNum]),
-          'function' => $field,
+          'function' => $function,
         ];
       }
     }
@@ -1587,14 +1601,14 @@ class RecordCleanerUI extends FormBase {
     }
 
     // Append the columns returned from the service.
-    if ($form_state->get(['organism_values', 'organism_type']) == 'tvk') {
+    if ($organismType == 'tvk') {
       $columns[] = [
         'name' => 'Name',
         'function' => 'name',
         'column' => NULL,
       ];
     }
-    elseif ($form_state->get(['organism_values', 'organism_type']) == 'name') {
+    elseif ($organismType == 'name') {
       $columns[] = [
         'name' => 'TVK',
         'function' => 'tvk',
@@ -1690,6 +1704,9 @@ class RecordCleanerUI extends FormBase {
       'coord2_field' => 'sref_values',
       'precision_field' => 'sref_values',
     ];
+
+    $organismType = $form_state->get(['organism_values', 'organism_type']);
+
     // Create a mappings array where the key is the function and the value is
     // the column number in the source file
     foreach($fields as $field => $store) {
@@ -1698,6 +1715,15 @@ class RecordCleanerUI extends FormBase {
       // An id of 'auto' or a precision of 'manual' means there is no mapping
       // for those fields.
       if (is_numeric($colNum)) {
+        // Organism is a special case where we rename fields.
+        // Sorry this seems to have got quite convoluted.
+        if ($field == 'organism_field' && $organismType == 'tvk') {
+          $field = 'tvk_field';
+        }
+        elseif ($field == 'organism_field' && $organismType == 'name') {
+          $field = 'name_field';
+        }
+
         $mappings[$field] = $colNum;
       }
     }
