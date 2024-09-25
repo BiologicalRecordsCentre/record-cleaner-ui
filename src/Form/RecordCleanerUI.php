@@ -155,7 +155,8 @@ class RecordCleanerUI extends FormBase {
         // https://www.drupal.org/node/3363700
         //'FileIsCsv' => [],
       ],
-      '#upload_location' => 'private://' . $this->currentUser->id(),
+      '#upload_location' => 'private://record-cleaner/' .
+        $this->currentUser->id(),
     ];
     $form['actions'] = [
       '#type' => 'actions',
@@ -820,7 +821,7 @@ class RecordCleanerUI extends FormBase {
 
     // Check for a file entity to store validated results.
     if (!$form_state->has('file_validate')) {
-      // Obtain the input file URI (private://{userid}/{filename}).
+      // Obtain the input file URI (private://record-cleaner{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
       // Create an output file URI by appending _validate to the input URI.
       // -4 means before the '.csv' characters.
@@ -831,6 +832,17 @@ class RecordCleanerUI extends FormBase {
       ]);
       $fileOut->setOwnerId($this->currentUser->id());
       $fileOut->save();
+
+      // If the user is anonymous, allow them to see the file during the
+      // current session.
+      // Ref. \Drupal\file\FileAccessControlHandler::checkAccess().
+      if ($this->currentUser->isAnonymous()) {
+        $session = $this->getRequest()->getSession();
+        $allowed_temp_files = $session->get('anonymous_allowed_file_ids', []);
+        $allowed_temp_files[$fileOut->id()] = $fileOut->id();
+        $session->set('anonymous_allowed_file_ids', $allowed_temp_files);
+      }
+
       // Save the output file information in the form_state storage as there
       // are no inputs to propagate it in form_state values.
       $form_state->set('file_validate', [
@@ -963,7 +975,7 @@ class RecordCleanerUI extends FormBase {
 
     // Check for a file entity to store verified results.
     if (!$form_state->has('file_verify')) {
-      // Obtain the input file URI (private://{userid}/{filename}).
+      // Obtain the input file URI (private://record-cleaner/{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
       // Create an output file URI by appending _verify to the input URI.
       // -4 means before the '.csv' characters.
@@ -974,6 +986,17 @@ class RecordCleanerUI extends FormBase {
       ]);
       $fileOut->setOwnerId($this->currentUser->id());
       $fileOut->save();
+
+      // If the user is anonymous, allow them to see the file during the
+      // current session.
+      // Ref. \Drupal\file\FileAccessControlHandler::checkAccess().
+      if ($this->currentUser->isAnonymous()) {
+        $session = $this->getRequest()->getSession();
+        $allowed_temp_files = $session->get('anonymous_allowed_file_ids', []);
+        $allowed_temp_files[$fileOut->id()] = $fileOut->id();
+        $session->set('anonymous_allowed_file_ids', $allowed_temp_files);
+      }
+
       // Save the output file information in the form_state storage as there
       // are no inputs to propagate it in form_state values.
       $form_state->set('file_verify', [

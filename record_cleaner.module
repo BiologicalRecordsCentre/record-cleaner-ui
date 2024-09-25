@@ -2,6 +2,7 @@
 
 use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Url;
+use Drupal\user\Entity\Role;
 
 /**
  * Implements hook_help().
@@ -68,4 +69,28 @@ and verification can be performed.", [
     }
 
   return $output;
+}
+
+/**
+ * Implements hook_file_download().
+ */
+function record_cleaner_file_download($uri) {
+  $file_system = \Drupal::service('file_system');
+  $user_id = \Drupal::currentUser()->id();
+
+  $dir = $file_system->dirname($uri);
+  if ($dir !== 'private://record-cleaner/' . $user_id) {
+    // Not our record cleaner file.
+    return NULL;
+  }
+  if (!\Drupal::currentUser()->hasPermission('use record cleaner')) {
+    // Not permitted.
+    return -1;
+  }
+
+  // Allow download.
+  $name = $file_system->basename($uri);
+  return [
+    'Content-Disposition' => "attachment;filename=$name",
+  ];
 }
