@@ -4,7 +4,7 @@ record_cleaner:
     _controller: '\Drupal\record_cleaner\Controller\RecordCleanerController::overview'
     _title: 'Record Cleaner'
   requirements:
-    _permission: 'anonymous'
+    _permission: 'use record cleaner'
 
 record_cleaner.status:
   path: '/record_cleaner/status'
