@@ -61,9 +61,9 @@ You can run up a local copy of the
 and interact with that if you want. For the docker containers to communicate
 you need to add them to the same network as follows:
 
-`docker network create rc-bridge`
-`docker network connect rc-bridge <service-container-name>`
-`docker network connect rc-bridge <drupal-container-name>`
+ - `docker network create rc-bridge`
+ - `docker network connect rc-bridge <service-container-name>`
+ - `docker network connect rc-bridge <drupal-container-name>`
 
 Currently the service container is calling itself `recordcleanerservice-dev`
 and the drupal container is `ddev-record-cleaner-web`.
