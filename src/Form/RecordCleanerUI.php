@@ -1522,9 +1522,11 @@ class RecordCleanerUI extends FormBase {
     $title = $this->t("Additional Fields");
     $colNums = $form_state->get(['additional_values', 'additional_fields']);
     $values = [];
-    foreach($colNums as $colNum) {
-      if (is_numeric($colNum) && is_string($colNum)) {
-        $values[] = $fileColumns[$colNum];
+    if (isset($colNums)) {
+      foreach($colNums as $colNum) {
+        if (is_numeric($colNum) && is_string($colNum)) {
+          $values[] = $fileColumns[$colNum];
+        }
       }
     }
     $value = implode(", ", $values);
