@@ -758,7 +758,7 @@ class RecordCleanerUI extends FormBase {
   public function buildAdditionalForm(array $form, FormStateInterface $form_state) {
     $unusedColumns = $this->getUnusedColumns($form_state);
     if (count($unusedColumns) == 0) {
-      $form = [
+      $form['no_additional_fields'] = [
         '#type' => 'item',
         '#title' => $this->t('Optional Fields'),
         '#description' => $this->t('There are no additional fields in the file
