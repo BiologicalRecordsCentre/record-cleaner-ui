@@ -13,8 +13,9 @@ use Drupal\Core\Render\Element;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
 use Drupal\file\Entity\File;
-use Drupal\record_cleaner\Service\CsvHelper;
 use Drupal\record_cleaner\Service\ApiHelper;
+use Drupal\record_cleaner\Service\CookieHelper;
+use Drupal\record_cleaner\Service\CsvHelper;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -39,6 +40,8 @@ class RecordCleanerUI extends FormBase {
    *
    * @param \Drupal\record_cleaner\Service\ApiHelper $apiHelper
    *   The record_cleaner API helper service.
+   * @param \Drupal\record_cleaner\Service\CookieHelper $cookieHelper
+   *   The cookie helper service.
    * @param \Drupal\record_cleaner\Service\CsvHelper $csvHelper
    *   The record_cleaner csv file service.
    * @param \Drupal\Core\Logger\LoggerChannelInterface $logger
@@ -54,6 +57,7 @@ class RecordCleanerUI extends FormBase {
    */
   public function __construct(
     protected ApiHelper $apiHelper,
+    protected CookieHelper $cookieHelper,
     protected CsvHelper $csvHelper,
     protected LoggerChannelInterface $logger,
     protected AccountProxyInterface $currentUser,
@@ -83,6 +87,7 @@ class RecordCleanerUI extends FormBase {
   public static function create(ContainerInterface $container) {
     return new static (
       $container->get('record_cleaner.api_helper'),
+      $container->get('record_cleaner.cookie_helper'),
       $container->get('record_cleaner.csv_helper'),
       $container->get('record_cleaner.logger_channel'),
       $container->get('current_user'),
@@ -868,6 +873,29 @@ class RecordCleanerUI extends FormBase {
     // Attach CSS to format table.
     $form['settings']['#attached']['library'][] = 'record_cleaner/record_cleaner';
 
+    $form['storage'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'record_cleaner_storage',
+      ],
+    ];
+
+    $form['storage']['info'] = [
+      '#type' => 'item',
+      '#title' => $this->t('Save Settings'),
+      '#description' => $this->t("Save your selections to your computer so you
+       don't have to re-enter them."),
+    ];
+
+    $form['storage']['save'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Save'),
+      '#ajax' => [
+        'callback' => '::saveSettingsCallback',
+        'wrapper' => 'record_cleaner_storage',
+      ],
+    ];
+
     $form['validate'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -956,6 +984,17 @@ class RecordCleanerUI extends FormBase {
     $form_state->set('validate_values', [
       'result' => $form_state->getValue('result'),
     ]);
+  }
+
+  public function saveSettingsCallback(array &$form, FormStateInterface $form_state) {
+    $settings = [
+      'mapping' => $form_state->get('mapping_values'),
+      'organism' => $form_state->get('organism_values'),
+      'sref' => $form_state->get('sref_values'),
+      'additional' => $form_state->get('additional_values'),
+    ];
+    $this->cookieHelper->setCookie($settings);
+    return $form['storage'];
   }
 
   public function validateCallback(array &$form, FormStateInterface $form_state) {
@@ -1306,6 +1345,13 @@ class RecordCleanerUI extends FormBase {
     // Restore form values previously set.
     if ($form_state->has("{$step}_values")) {
       $form_state->setValues($form_state->get("{$step}_values"));
+    }
+    else {
+      $settings = $this->cookieHelper->getCookie();
+      // Or stored in a cookie from a previous occasion
+      if (isset($settings) && isset($settings[$step])) {
+        $form_state->setValues($settings[$step]);
+      }
     }
 
     // Change step.
