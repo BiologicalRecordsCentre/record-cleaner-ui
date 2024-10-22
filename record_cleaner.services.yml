@@ -12,6 +12,13 @@ services:
       - '@config.factory'
       - '@http_client_factory'
 
+  record_cleaner.cookie_helper:
+    class: \Drupal\record_cleaner\Service\CookieHelper
+    arguments:
+      - '@request_stack'
+    tags:
+      - { name: 'event_subscriber' }
+
   record_cleaner.csv_helper:
     class: Drupal\record_cleaner\Service\CsvHelper
     arguments:
