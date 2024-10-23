@@ -913,9 +913,9 @@ class RecordCleanerUI extends FormBase {
     // There is no change event for this input but it is taken in to account
     // when Ajax content is loaded and initial states are set.
     // It has a value of 0 which is changed to pass or fail after validation.
-    $form['validate']['result'] = [
+    $form['validate']['validate-result'] = [
       '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('result', '0'),
+      '#default_value' => $form_state->getValue('validate-result', '0'),
     ];
 
     // Add a link to the validated file shown after validation.
@@ -927,7 +927,7 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t('Validated file'),
       '#url' => Url::fromUri($url),
       '#states' => ['visible' =>
-        ['input[name="result"]' => ['!value' => '0']],
+        ['input[name="validate-result"]' => ['!value' => '0']],
       ],
     ];
 
@@ -962,7 +962,7 @@ class RecordCleanerUI extends FormBase {
       '#button_type' => 'primary',
       '#value' => $this->t('Next'),
       '#states' => ['enabled' =>
-        ['input[name="result"]' => ['value' => 'pass']]
+        ['input[name="validate-result"]' => ['value' => 'pass']]
       ],
       '#submit' => ['::forwardFromValidateForm'],
     ];
@@ -982,7 +982,7 @@ class RecordCleanerUI extends FormBase {
 
   public function saveValidateValues(FormStateInterface $form_state) {
     $form_state->set('validate_values', [
-      'result' => $form_state->getValue('result'),
+      'validate-result' => $form_state->getValue('validate-result'),
     ]);
   }
 
@@ -1176,9 +1176,9 @@ class RecordCleanerUI extends FormBase {
     // There is no change event for this input but it is taken in to account
     // when Ajax content is loaded and initial states are set.
     // It has a value of 0 which is changed to pass or fail after verification.
-    $form['verify']['result'] = [
+    $form['verify']['verify-result'] = [
       '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('result', '0'),
+      '#default_value' => $form_state->getValue('verify-result', '0'),
     ];
 
     // Add a link to the verified file.
@@ -1190,7 +1190,7 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t('Verified file'),
       '#url' => Url::fromUri($url),
       '#states' => ['visible' =>
-        ['input[name="result"]' => ['!value' => '0']],
+        ['input[name="verify-result"]' => ['!value' => '0']],
       ],
     ];
 
@@ -1243,7 +1243,7 @@ class RecordCleanerUI extends FormBase {
   public function saveVerifyValues(FormStateInterface $form_state) {
     $form_state->set('verify_values', [
       'rules' => $form_state->getValue('rules'),
-      'result' => $form_state->getValue('result'),
+      'result' => $form_state->getValue('verify-result'),
     ]);
   }
 
@@ -1322,10 +1322,10 @@ class RecordCleanerUI extends FormBase {
       $result = 'fail';
     }
 
-    $form_state->setValue('result', $result);
+    $form_state->setValue("$action-result", $result);
 
     $form[$action]['output']['#value'] = $output;
-    $form[$action]['result']['#value'] = $result;
+    $form[$action]["$action-result"]['#value'] = $result;
     return $form[$action];
 
   }
