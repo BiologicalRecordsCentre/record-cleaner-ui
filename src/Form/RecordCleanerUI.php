@@ -967,6 +967,12 @@ class RecordCleanerUI extends FormBase {
       '#submit' => ['::forwardFromValidateForm'],
     ];
 
+    $form['validate']['actions']['restart'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Start again'),
+      '#submit' => ['::returnToStart'],
+    ];
+
     return $form;
   }
 
@@ -1218,6 +1224,12 @@ class RecordCleanerUI extends FormBase {
       ],
     ];
 
+    $form['actions']['restart'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Start again'),
+      '#submit' => ['::returnToStart'],
+    ];
+
     return $form;
   }
 
@@ -1336,6 +1348,18 @@ class RecordCleanerUI extends FormBase {
 
   public function moveBack(FormStateInterface $form_state) {
     $this->move($form_state, -1);
+  }
+
+  public function returnToStart(array &$form, FormStateInterface $form_state) {
+    # Reset initial file and results.
+    $storage = $form_state->getStorage();
+    unset($storage['upload_values']);
+    unset($storage['file_upload']);
+    unset($storage['validate_values']['validate-result']);
+    unset($storage['verify_values']['verify-result']);
+    $form_state->setStorage($storage);
+
+    $this->move($form_state, -$form_state->get('step_num'));
   }
 
   public function move(FormStateInterface $form_state, int $increment) {
