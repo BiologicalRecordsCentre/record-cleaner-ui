@@ -298,11 +298,11 @@ class CsvHelper {
 
     if ($settings['sref']['type'] == 'grid') {
       // Gridrefs are simple.
-      $sref['gridref'] = $row[$mappings['coord1_field']];
+      $sref['gridref'] = $row[$mappings['coord1']];
     }
     else {
       // Determine precision of coordinates.
-      $precisionField = $mappings['precision_field'] ?? 'manual';
+      $precisionField = $mappings['precision'] ?? 'manual';
       if ($precisionField == 'manual') {
         $accuracy = $settings['sref']['precision_value'];
       }
@@ -317,7 +317,7 @@ class CsvHelper {
         $separators = [ ',', ' '];
         $coord1 = $coord2 = NULL;
         foreach ($separators as $separator) {
-          $coords = explode($separator, $row[$mappings['coord1_field']]);
+          $coords = explode($separator, $row[$mappings['coord1']]);
           if (count($coords) == 2) {
             $coord1 = trim($coords[0]);
             $coord2 = trim($coords[1]);
@@ -326,8 +326,8 @@ class CsvHelper {
         }
       }
       else {
-        $coord1 = $row[$mappings['coord1_field']];
-        $coord2 = $row[$mappings['coord2_field']];
+        $coord1 = $row[$mappings['coord1']];
+        $coord2 = $row[$mappings['coord2']];
       }
 
       if ($settings['sref_type'] == 'en') {
@@ -356,29 +356,29 @@ class CsvHelper {
     $mappings = $settings['source']['mappings'];
 
     // Mandatory fields.
-    $idField = $mappings['id_field'] ?? 'auto';
+    $idField = $mappings['id'] ?? 'auto';
     $record = [
       'id' => $idField == 'auto' ? $count : $row[$idField] ,
-      'date' => $row[$mappings['date_field']],
+      'date' => $row[$mappings['date']],
       'sref' => $this->buildSrefSubmission($row, $settings),
     ];
 
-    if (array_key_exists('tvk_field', $mappings)) {
-      $record['tvk'] = $row[$mappings['tvk_field']];
+    if (array_key_exists('tvk', $mappings)) {
+      $record['tvk'] = $row[$mappings['tvk']];
     }
-    elseif (array_key_exists('name_field', $mappings)) {
-      $record['name'] = $row[$mappings['name_field']];
+    elseif (array_key_exists('name', $mappings)) {
+      $record['name'] = $row[$mappings['name']];
     }
 
     // Optional fields.
-    if(array_key_exists('vc_field', $mappings)) {
-      $record['vc'] = $row[$mappings['vc_field']];
+    if(array_key_exists('vc', $mappings)) {
+      $record['vc'] = $row[$mappings['vc']];
     }
 
     // Extra optional field for verification.
     if ($settings['action'] == 'verify') {
-      if(array_key_exists('stage_field', $mappings)) {
-        $record['stage'] = $row[$mappings['stage_field']];
+      if(array_key_exists('stage', $mappings)) {
+        $record['stage'] = $row[$mappings['stage']];
       }
     }
 

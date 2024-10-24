@@ -1762,7 +1762,7 @@ class RecordCleanerUI extends FormBase {
   }
 
   /**
-   * Create mapping from field to column number in validate file.
+   * Create mapping from function to column number in validate file.
    *
    * This is needed to pick the correct data from the validated file to insert
    * in to the submission to the verification service.
@@ -1775,14 +1775,14 @@ class RecordCleanerUI extends FormBase {
     foreach($columns as $colNum => $column) {
       $colFunction = $column['function'];
       if (in_array($colFunction, $functions)) {
-        $mappings[$colFunction . '_field'] = $colNum;
+        $mappings[$colFunction] = $colNum;
       }
     }
     return $mappings;
   }
 
   /**
-   * Create mapping from field to column number in uploaded file.
+   * Create mapping from function to column number in uploaded file.
    *
    * This is needed to pick the correct data from the uploaded file to insert
    * in to the submission to the validation service.
@@ -1790,36 +1790,36 @@ class RecordCleanerUI extends FormBase {
   public function getUploadMappings(FormStateInterface $form_state) {
     $mappings = [];
     $fields = [
-      'id_field' => 'mapping_values',
-      'date_field' => 'mapping_values',
-      'vc_field' => 'mapping_values',
-      'stage_field' => 'mapping_values',
-      'organism_field' => 'organism_values',
-      'coord1_field' =>'sref_values',
-      'coord2_field' => 'sref_values',
-      'precision_field' => 'sref_values',
+      'id' => 'mapping_values',
+      'date' => 'mapping_values',
+      'vc' => 'mapping_values',
+      'stage' => 'mapping_values',
+      'organism' => 'organism_values',
+      'coord1' =>'sref_values',
+      'coord2' => 'sref_values',
+      'precision' => 'sref_values',
     ];
 
     $organismType = $form_state->get(['organism_values', 'organism_type']);
 
     // Create a mappings array where the key is the function and the value is
     // the column number in the source file
-    foreach($fields as $field => $store) {
-      $colNum = $form_state->get([$store, "$field"]);
+    foreach($fields as $function => $store) {
+      $colNum = $form_state->get([$store, "{$function}_field"]);
       // A select value of '0' is valid but '' indicates not set.
       // An id of 'auto' or a precision of 'manual' means there is no mapping
       // for those fields.
       if (is_numeric($colNum)) {
         // Organism is a special case where we rename fields.
         // Sorry this seems to have got quite convoluted.
-        if ($field == 'organism_field' && $organismType == 'tvk') {
-          $field = 'tvk_field';
+        if ($function == 'organism' && $organismType == 'tvk') {
+          $function = 'tvk';
         }
-        elseif ($field == 'organism_field' && $organismType == 'name') {
-          $field = 'name_field';
+        elseif ($function == 'organism' && $organismType == 'name') {
+          $function = 'name';
         }
 
-        $mappings[$field] = $colNum;
+        $mappings[$function] = $colNum;
       }
     }
     return $mappings;
