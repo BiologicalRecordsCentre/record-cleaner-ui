@@ -1620,11 +1620,11 @@ class RecordCleanerUI extends FormBase {
     $organismType = $form_state->get(['organism_values', 'organism_type']);
 
     foreach($uploadMappings as $function => $colNum) {
-        $mappings[$colNum] = [
-          'name' => $form_state->get(['file_upload', 'columns', $colNum]),
-          'function' => $function,
-        ];
-    }
+      $mappings[$colNum] = [
+        'name' => $form_state->get(['file_upload', 'columns', $colNum]),
+        'function' => $function,
+      ];
+   }
 
     // Add mappings for additional fields.
     foreach($form_state->get(['additional_values', 'additional_fields']) as $colNum) {
@@ -1679,6 +1679,16 @@ class RecordCleanerUI extends FormBase {
       'function' => 'id_difficulty',
       'column' => NULL,
     ];
+
+    // If a vice county is supplied, it is checked.
+    // When it is not supplied, return the primary VC for the grid square.
+    if (!array_key_exists('vc', $uploadMappings)) {
+      $columns[] = [
+        'name' => 'VC Estimate',
+        'function' => 'vc',
+        'column' => NULL,
+      ];
+    }
 
     $columns[] = [
       'name' => 'Pass',
