@@ -3,6 +3,7 @@
 namespace Drupal\record_cleaner\Form;
 
 use Drupal\Component\Utility\Html;
+use Drupal\Component\Utility\NestedArray;
 use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Entity\EntityTypeManager;
 use Drupal\Core\File\FileUrlGenerator;
@@ -977,19 +978,17 @@ class RecordCleanerUI extends FormBase {
   }
 
   public function backFromValidateForm(array &$form, FormStateInterface $form_state) {
-    $this->saveValidateValues($form_state);
+    // Remove result going back.
+    NestedArray::unsetValue($form_state->getStorage(), ['validate_values']);
     $this->moveBack($form_state);
   }
 
   public function forwardFromValidateForm(array &$form, FormStateInterface $form_state) {
-    $this->saveValidateValues($form_state);
-    $this->moveForward($form_state);
-  }
-
-  public function saveValidateValues(FormStateInterface $form_state) {
+    // Save result going forward.
     $form_state->set('validate_values', [
       'validate-result' => $form_state->getValue('validate-result'),
     ]);
+    $this->moveForward($form_state);
   }
 
   public function saveSettingsCallback(array &$form, FormStateInterface $form_state) {
@@ -1248,15 +1247,11 @@ class RecordCleanerUI extends FormBase {
   }
 
   public function backFromVerifyForm(array &$form, FormStateInterface $form_state) {
-    $this->saveVerifyValues($form_state);
-    $this->moveBack($form_state);
-  }
-
-  public function saveVerifyValues(FormStateInterface $form_state) {
+    // verify-result intentionally not saved when going back.
     $form_state->set('verify_values', [
       'rules' => $form_state->getValue('rules'),
-      'result' => $form_state->getValue('verify-result'),
     ]);
+    $this->moveBack($form_state);
   }
 
   public function verifyCallback(array &$form, FormStateInterface $form_state) {
@@ -1351,14 +1346,16 @@ class RecordCleanerUI extends FormBase {
   }
 
   public function returnToStart(array &$form, FormStateInterface $form_state) {
-    # Reset initial file and results.
+    // Reset initial file and results.
     $storage = $form_state->getStorage();
     unset($storage['upload_values']);
     unset($storage['file_upload']);
-    unset($storage['validate_values']['validate-result']);
-    unset($storage['verify_values']['verify-result']);
+    unset($storage['file_validate']);
+    unset($storage['file_verify']);
+    unset($storage['validate_values']);
     $form_state->setStorage($storage);
 
+   // Reset to step 0 by negating the current step.
     $this->move($form_state, -$form_state->get('step_num'));
   }
 
