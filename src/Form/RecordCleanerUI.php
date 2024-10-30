@@ -1616,45 +1616,14 @@ class RecordCleanerUI extends FormBase {
    */
   public function getValidateColumns(FormStateInterface $form_state) {
     $mappings = [];
-    $fields = [
-      'id' => 'mapping_values',
-      'date' => 'mapping_values',
-      'vc' => 'mapping_values',
-      'stage' => 'mapping_values',
-      'organism' => 'organism_values',
-      'coord1' =>'sref_values',
-      'coord2' => 'sref_values',
-      'precision' => 'sref_values',
-    ];
-
+    $uploadMappings = $form_state->get(['file_upload', 'mappings']);
     $organismType = $form_state->get(['organism_values', 'organism_type']);
 
-    // Create a mappings array where the key is the column number in the source
-    // file and the value is an array of the column name and its function.
-    foreach($fields as $field => $store) {
-      $colNum = $form_state->get([$store, "{$field}_field"]);
-      // A select value of '0' is valid but '' indicates not set.
-      // An id of 'auto' or a precision of 'manual' means there is no mapping
-      // for those fields.
-      if (is_numeric($colNum)) {
-        // Organism is a special case. We want to be able to pick out the tvk
-        // column when it comes round to verification, whether it came from the
-        // original file or the validation service.
-        if ($field == 'organism' && $organismType == 'tvk') {
-          $function = 'tvk';
-        }
-        elseif ($field == 'organism' && $organismType == 'name') {
-          $function = 'name';
-        }
-        else {
-          $function = $field;
-        }
-
+    foreach($uploadMappings as $function => $colNum) {
         $mappings[$colNum] = [
           'name' => $form_state->get(['file_upload', 'columns', $colNum]),
           'function' => $function,
         ];
-      }
     }
 
     // Add mappings for additional fields.
