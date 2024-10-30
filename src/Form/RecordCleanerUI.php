@@ -780,7 +780,7 @@ class RecordCleanerUI extends FormBase {
         '#description' => $this->t('Please select any additional fields from the
         file that you would like included in the output dataset.'),
         '#options' => $unusedColumns,
-       '#default_value' => $form_state->getValue('additional_fields', []),
+        '#default_value' => $form_state->getValue('additional_fields', []),
       ];
     }
 
@@ -813,12 +813,26 @@ class RecordCleanerUI extends FormBase {
 
   public function forwardFromAdditionalForm(array &$form, FormStateInterface $form_state) {
     $this->saveAdditionalValues($form_state);
+
+    // Store mappings of function to column in upload file.
+    $uploadMappings = $this->getUploadMappings($form_state);
+    $form_state->set(['file_upload', 'mappings'], $uploadMappings);
+    // Determine columns in validation file.
+    $validateColumns = $this->getValidateColumns($form_state);
+    $form_state->set(['file_validate', 'columns'], $validateColumns);
+    // Store mappings of function to column in validation file.
+    $mappings = $this->getValidateMappings($validateColumns);
+    $form_state->set(['file_validate', 'mappings'], $mappings);
+    // Determine columns in verification file.
+    $verifyColumns = $this->getVerifyColumns($validateColumns);
+    $form_state->set(['file_verify', 'columns'], $verifyColumns);
+
     $this->moveForward($form_state);
   }
 
   public function saveAdditionalValues(FormStateInterface $form_state) {
     $form_state->set('additional_values', [
-      'additional_fields' => $form_state->getValue('additional_fields'),
+      'additional_fields' => $form_state->getValue('additional_fields', []),
     ]);
   }
 
@@ -826,7 +840,7 @@ class RecordCleanerUI extends FormBase {
   public function buildValidateForm(array $form, FormStateInterface $form_state) {
 
     // Check for a file entity to store validated results.
-    if (!$form_state->has('file_validate')) {
+    if (!$form_state->has(['file_validate', 'uri'])) {
       // Obtain the input file URI (private://record-cleaner{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
       // Create an output file URI by appending _validate to the input URI.
@@ -945,7 +959,7 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['validate']['actions']['validate'] = [
-      '#type' => 'submit',
+      '#type' => 'button',
       '#button_type' => 'primary',
       '#value' => $this->t('Validate'),
       '#ajax' => [
@@ -1003,14 +1017,6 @@ class RecordCleanerUI extends FormBase {
   }
 
   public function validateCallback(array &$form, FormStateInterface $form_state) {
-    // Store mappings of function to column in uploaded file.
-    // Note, this is not sticking in the form_state.
-    $mappings = $this->getUploadMappings($form_state);
-    $form_state->set(['file_upload', 'mappings'], $mappings);
-    // Determine columns in output file.
-    $columns = $this->getValidateColumns($form_state);
-    $form_state->set(['file_validate', 'columns'], $columns);
-
     return $this->submitCallback($form, $form_state, 'validate');
   }
 
@@ -1018,7 +1024,7 @@ class RecordCleanerUI extends FormBase {
   public function buildVerifyForm(array $form, FormStateInterface $form_state) {
 
     // Check for a file entity to store verified results.
-    if (!$form_state->has('file_verify')) {
+    if (!$form_state->has(['file_verify', 'uri'])) {
       // Obtain the input file URI (private://record-cleaner/{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
       // Create an output file URI by appending _verify to the input URI.
@@ -1210,7 +1216,7 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['actions']['verify'] = [
-      '#type' => 'submit',
+      '#type' => 'button',
       '#button_type' => 'primary',
       '#value' => $this->t('Verify'),
       '#ajax' => [
@@ -1255,16 +1261,6 @@ class RecordCleanerUI extends FormBase {
   }
 
   public function verifyCallback(array &$form, FormStateInterface $form_state) {
-    // Store mappings of function to column in validated file.
-    // Note, I wasn't expecting to have to do calculate columns again but it is
-    // not sticking in the form_state when calculated for validation.
-    $validateColumns = $this->getValidateColumns($form_state);
-    $mappings = $this->getValidateMappings($validateColumns);
-    $form_state->set(['file_validate', 'mappings'], $mappings);
-    // Determine columns in output file.
-    $columns = $this->getVerifyColumns($validateColumns);
-    $form_state->set(['file_verify', 'columns'], $columns);
-
     return $this->submitCallback($form, $form_state, 'verify');
   }
 
@@ -1290,7 +1286,7 @@ class RecordCleanerUI extends FormBase {
       $output = 'file_verify';
     }
 
-    // Bundle all settings needed for submitting to service..
+    // Bundle all settings needed for submitting to service.
     $settings['action'] = $action;
     $settings['source'] = $form_state->get($source);
     $settings['output'] = $form_state->get($output);
@@ -1319,7 +1315,7 @@ class RecordCleanerUI extends FormBase {
     // Send to the csv helper service.
     $errors = $this->csvHelper->submit($settings);
 
-    // Output results.
+    // Store results.
     if (count($errors) == 0) {
       $output = "$action successful.";
       $result = 'pass';
@@ -1331,10 +1327,11 @@ class RecordCleanerUI extends FormBase {
 
     $form_state->setValue("$action-result", $result);
 
+    // Add the results to the form which has been built already.
     $form[$action]['output']['#value'] = $output;
     $form[$action]["$action-result"]['#value'] = $result;
-    return $form[$action];
 
+    return $form[$action];
   }
 
   public function moveForward(FormStateInterface $form_state) {
@@ -1863,23 +1860,9 @@ class RecordCleanerUI extends FormBase {
     return $orgGroupRules;
   }
 
-  /**
-   * {@inheritdoc}
+  /** {@inheritdoc}
    *
-   * Receives a file object ID in $form_state['values'] that represents the ID
-   * of the new file in the {file_managed} table
+   * Implemented as required by FormBase but unused.
    */
-  public function validateForm(array &$form, FormStateInterface $form_state) {
-    //parent::validateForm($form, $form_state);
-  }
-
-  /**
-   * {@inheritdoc}
-   *
-   * Receives a file object ID in $form_state['values'] that represents the ID
-   * of the new file in the {file_managed} table
-   */
-  public function submitForm(array &$form, FormStateInterface $form_state) {
-    // Submissions are handled by the submitHandlerHelper service.
-  }
+  public function submitForm(array &$form, FormStateInterface $form_state) {}
 }
