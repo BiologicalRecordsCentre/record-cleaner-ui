@@ -1112,7 +1112,7 @@ class RecordCleanerUI extends FormBase {
         '#title' => $organisation,
         '#default_value' => $orgValue,
         '#ajax' => [
-          'callback' => '::uncheckChildren',
+          'callback' => '::changeSelection',
           'event' => 'change',
           'wrapper' => $groupContainerId,
         ]
@@ -1148,16 +1148,11 @@ class RecordCleanerUI extends FormBase {
           '#title' => $group,
           '#default_value' => $groupValue,
           '#ajax' => [
-            'callback' => '::uncheckChildren',
+            'callback' => '::changeSelection',
             'event' => 'change',
             'wrapper' => $ruleContainerId,
           ]
         ];
-
-        // Deselect group if organisation is deselected.
-        if (!$orgValue) {
-          $form['rules'][$groupContainer][$group]['#value'] = 0;
-        }
 
         // Container for rules of group.
         $form['rules'][$groupContainer][$ruleContainer] = [
@@ -1182,11 +1177,6 @@ class RecordCleanerUI extends FormBase {
               ['rules', $groupContainer, $ruleContainer, $rule]
             ),
           ];
-
-          // Deselect rules if group or organisation is deselected.
-          if (!$orgValue ||!$groupValue) {
-            $form['rules'][$groupContainer][$ruleContainer][$rule]['#value'] = 0;
-          }
         }
       }
     }
@@ -1263,15 +1253,51 @@ class RecordCleanerUI extends FormBase {
     return $form['rules'];
   }
 
-  public function uncheckChildren(array &$form, FormStateInterface $form_state) {
+  public function changeSelection(array &$form, FormStateInterface $form_state) {
     $triggeredElement = $form_state->getTriggeringElement();
-    // Locate the container of the child elements.
     $parents = $triggeredElement['#array_parents'];
+    $selection = $form_state->getValue($parents);
+    $values = $form_state->getValues();
+
     if (count($parents) == 2) {
-      $container = $form[$parents[0]][$parents[1] . ' groups'];
+      // Organisation in ['rules'][$organisation] changed.
+      $organisation = $parents[1];
+      $groupContainer = "$organisation groups";
+      $container = $form['rules'][$groupContainer];
+
+      // Check or clear all the descendant checkboxes.
+      $groupItems = $values['rules'][$groupContainer];
+      foreach($groupItems as $item => $value) {
+        if (is_int($value)) {
+          // Found a group checkbox
+          $container[$item]['#checked'] = $selection;
+        }
+        else {
+          // Found a rule container.
+          foreach(array_keys($value) as $rule) {
+            $container[$item][$rule]['#checked'] = $selection;
+          }
+          // Make it visible.
+          foreach($container[$item]['#attributes']['class'] as $idx => $class) {
+            if ($class == 'hidden') {
+              unset($container[$item]['#attributes']['class'][$idx]);
+            }
+          }
+        }
+      }
     }
     elseif (count($parents) == 3) {
-      $container = $form[$parents[0]][$parents[1]][$parents[2] . ' rules'];
+      // Group in ['rules'][$groupContainer][$group] changed.
+      $groupContainer = $parents[1];
+      $group = $parents[2];
+      $ruleContainer = "$group rules";
+      $container = $form['rules'][$groupContainer][$ruleContainer];
+
+      // Check or clear all the descendant checkboxes.
+      $rules = $values['rules'][$groupContainer][$ruleContainer];
+      foreach(array_keys($rules) as $rule) {
+        $container[$rule]['#checked'] = $selection;
+      }
     }
 
     return $container;
