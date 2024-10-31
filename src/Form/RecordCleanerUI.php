@@ -1310,7 +1310,7 @@ class RecordCleanerUI extends FormBase {
     $settings['sref']['srid'] = $srid;
 
     if ($action == 'verify') {
-      $settings['org_group_rules'] = $this->getOrgGroupRules($form);
+      $settings['org_group_rules'] = $this->getOrgGroupRules($form_state);
     }
 
     // Send to the csv helper service.
@@ -1799,28 +1799,27 @@ class RecordCleanerUI extends FormBase {
     return $mappings;
   }
 
-  public function getOrgGroupRules(array &$form) {
+  public function getOrgGroupRules(FormStateInterface $form_state) {
     // Construct org_group_rules_list required by API.
     $orgGroupRules = [];
-    $orgContainer = $form['rules'];
-    foreach(Element::children($orgContainer) as $orgElementKey) {
-      $orgElement = $orgContainer[$orgElementKey];
-      if ($orgElement['#type'] == 'checkbox' && $orgElement['#value'] == 1) {
-        $organisation = $orgElementKey;
-
-        $groupContainer = $form['rules']["$organisation groups"];
-        foreach(Element::children($groupContainer) as $groupElementKey) {
-          $groupElement = $groupContainer[$groupElementKey];
-          if ($groupElement['#type'] == 'checkbox' && $groupElement['#value'] == 1) {
-            $group = $groupElementKey;
-
-            $ruleContainer = $groupContainer["$group rules"];
+    $values = $form_state->getValues();
+    // Build array of selected org group rules.
+    foreach($values['rules'] as $item => $value) {
+      // Seek checked organisations.
+      if ($value == 1) {
+        $organisation = $item;
+        $groupContainer = "$organisation groups";
+        foreach($values['rules'][$groupContainer] as $item => $value) {
+          // Seek checked groups.
+          if ($value == 1) {
+            $group = $item;
+            $ruleContainer = "$group rules";
             $rules = [];
-            foreach(Element::children($ruleContainer) as $ruleElementKey) {
-              $ruleElement = $ruleContainer[$ruleElementKey];
-              if ($ruleElement['#type'] == 'checkbox' && $ruleElement['#value'] == 1) {
+            foreach($values['rules'][$groupContainer][$ruleContainer] as $item => $value) {
+              // Seek checked rules.
+              if ($value == 1) {
                 // Convert '{Ruletype} Rule' to {ruletype}
-                $rule = strtolower(explode(' ', $ruleElementKey)[0]);
+                $rule = strtolower(explode(' ', $item)[0]);
                 $rules[] = $rule;
               }
             }
