@@ -1097,7 +1097,6 @@ class RecordCleanerUI extends FormBase {
           'wrapper' => $groupContainerId,
         ]
       ];
-      $orgInput = "input[name=\"rules[$organisation]\"]";
 
       // Container for groups of organisation.
       $form['rules'][$groupContainer] = [
@@ -1134,7 +1133,6 @@ class RecordCleanerUI extends FormBase {
             'wrapper' => $ruleContainerId,
           ]
         ];
-        $groupInput = "input[name=\"rules[$groupContainer][$group]\"]";
 
         // Deselect group if organisation is deselected.
         if (!$orgValue) {
