@@ -962,6 +962,9 @@ class RecordCleanerUI extends FormBase {
       '#type' => 'button',
       '#button_type' => 'primary',
       '#value' => $this->t('Validate'),
+      '#states' => ['disabled' =>
+        ['input[name="validate-result"]' => ['value' => 'pass']]
+      ],
       '#ajax' => [
         'callback' => '::validateCallback',
         'wrapper' => 'record_cleaner_validate',
