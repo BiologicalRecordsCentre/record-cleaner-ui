@@ -1058,6 +1058,20 @@ class RecordCleanerUI extends FormBase {
       ]);
     }
 
+    // All rules checkbox.
+    $allValue = $form_state->getValue('all', 1);
+    $form['all'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Use all rules'),
+      '#description' => $this->t('Uncheck to choose specific rules.'),
+      '#default_value' => $allValue,
+      '#ajax' => [
+        'callback' => '::changeAll',
+        'event' => 'change',
+        'wrapper' => 'organisations',
+      ]
+    ];
+
     // Container for all org group rules.
     // Tree ensures naming of elements is unique.
     $form['rules'] = [
@@ -1066,6 +1080,7 @@ class RecordCleanerUI extends FormBase {
       '#description' => $this->t('Select the verification tests you want to run.'),
       '#description_display' => 'before',
       '#attributes' => [
+        'id' => 'organisations',
         'class' => ['record-cleaner-organisation-container'],
       ],
       '#tree' => TRUE,
@@ -1075,6 +1090,11 @@ class RecordCleanerUI extends FormBase {
 
     // Get the organisation-group-rules from the service.
     $orgGroupRules = $this->apiHelper->orgGroupRules();
+
+    // Hide organisation container if all rules is selected.
+    if ($allValue) {
+      $form['rules']['#attributes']['class'][] = 'hidden';
+    }
 
     // We build a hierarchy of checkboxes for organisation, groups and rules.
     // We use #ajax to deselect and children when the parent is unchecked.
@@ -1239,6 +1259,10 @@ class RecordCleanerUI extends FormBase {
     return $form;
   }
 
+  public function changeAll(array &$form, FormStateInterface $form_state) {
+    return $form['rules'];
+  }
+
   public function uncheckChildren(array &$form, FormStateInterface $form_state) {
     $triggeredElement = $form_state->getTriggeringElement();
     // Locate the container of the child elements.
@@ -1257,6 +1281,7 @@ class RecordCleanerUI extends FormBase {
     // verify-result intentionally not saved when going back.
     $form_state->set('verify_values', [
       'rules' => $form_state->getValue('rules'),
+      'all' => $form_state->getValue('all'),
     ]);
     $this->moveBack($form_state);
   }
@@ -1801,6 +1826,12 @@ class RecordCleanerUI extends FormBase {
 
   public function getOrgGroupRules(FormStateInterface $form_state) {
     // Construct org_group_rules_list required by API.
+
+    if ($form_state->getValue('all') == 1) {
+      // Early return if 'all' is checked.
+      return [];
+    }
+
     $orgGroupRules = [];
     $values = $form_state->getValues();
     // Build array of selected org group rules.
