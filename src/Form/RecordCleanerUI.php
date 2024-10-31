@@ -1121,7 +1121,7 @@ class RecordCleanerUI extends FormBase {
 
         // Group checkbox.
         $groupValue =  $form_state->getValue(
-          ['rules', "$organisation groups", $group]
+          ['rules', $groupContainer, $group]
         );
         $form['rules'][$groupContainer][$group] = [
           '#type' => 'checkbox',
@@ -1159,7 +1159,7 @@ class RecordCleanerUI extends FormBase {
             '#type' => 'checkbox',
             '#title' => $rule,
             '#default_value' => $form_state->getValue(
-              ['rules', "$organisation groups", "$group rules", $rule]
+              ['rules', $groupContainer, $ruleContainer, $rule]
             ),
           ];
 
