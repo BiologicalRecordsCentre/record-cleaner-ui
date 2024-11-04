@@ -108,6 +108,11 @@ class CsvHelper {
 
       // Loop through rest of the input file line by line.
       while (($row = fgetcsv($fpIn)) !== FALSE) {
+        // Skip empty rows.
+        if ($this->isEmptyRow($row)) {
+          continue;
+        }
+
         // Format data for submission to API.
         $recordChunk[] = $this->buildRecordSubmission($row, $count, $settings);
         // Save additional data for output file.
@@ -385,4 +390,12 @@ class CsvHelper {
     return $record;
   }
 
+  public function isEmptyRow($row) {
+    foreach ($row as $value) {
+      if ($value !== '') {
+        return FALSE;
+      }
+    }
+    return TRUE;
+  }
 }
