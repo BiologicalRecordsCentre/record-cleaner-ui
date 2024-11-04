@@ -164,6 +164,33 @@ class RecordCleanerUI extends FormBase {
       '#upload_location' => 'private://record-cleaner/' .
         $this->currentUser->id(),
     ];
+
+    if ($this->cookieHelper->hasCookie()) {
+      $form['storage'] = [
+        '#type' => 'container',
+        '#attributes' => [
+          'id' => 'record_cleaner_storage',
+        ],
+      ];
+
+      $form['storage']['info'] = [
+        '#type' => 'item',
+        '#title' => $this->t('Delete Settings'),
+        '#description' => $this->t("If you have changed file format, you should
+        delete saved settings."),
+      ];
+
+      $form['storage']['delete'] = [
+        '#type' => 'button',
+        '#value' => $this->t('Delete'),
+        '#limit_validation_errors' => array(),
+        '#ajax' => [
+          'callback' => '::deleteSettingsCallback',
+          'wrapper' => 'record_cleaner_storage',
+        ],
+      ];
+    }
+
     $form['actions'] = [
       '#type' => 'actions',
     ];
@@ -177,6 +204,13 @@ class RecordCleanerUI extends FormBase {
     ];
 
     return $form;
+  }
+
+  public function deleteSettingsCallback(array &$form, FormStateInterface $form_state) {
+    $this->cookieHelper->deleteCookie();
+    unset($form['storage']['info']);
+    unset($form['storage']['delete']);
+    return $form['storage'];
   }
 
   public function forwardFromUploadForm(array &$form, FormStateInterface $form_state) {
@@ -903,7 +937,7 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['storage']['save'] = [
-      '#type' => 'submit',
+      '#type' => 'button',
       '#value' => $this->t('Save'),
       '#ajax' => [
         'callback' => '::saveSettingsCallback',

@@ -23,6 +23,8 @@ class CookieHelper implements EventSubscriberInterface {
 
   protected $value;
 
+  protected $delete;
+
   /**
    * Constructor.
    *
@@ -82,18 +84,39 @@ class CookieHelper implements EventSubscriberInterface {
   }
 
   /**
+   * Flag cookie for deletion when response is sent.
+   */
+  public function deleteCookie() {
+    $this->delete = TRUE;
+  }
+
+  /**
+   * Check if cookie exists.
+   *
+   * @return bool
+   */
+  public function hasCookie() {
+    $value = $this->request->cookies->get('record-cleaner');
+    return isset($value);
+  }
+
+  /**
    * Event handler to add cookie to response.
    *
    * @param ResponseEvent $event
    */
   public function onResponse(ResponseEvent $event) {
     $response = $event->getResponse();
+
+    // Update cookie in preference to deleting it.
     if (isset($this->value)) {
       $expire = time() + 60 * 60 * 24 * 365;
       $value = json_encode($this->value);
       $cookie = new Cookie('record-cleaner', $value, $expire);
       $response->headers->setCookie($cookie);
     }
+    elseif (isset($this->delete)) {
+      $response->headers->clearCookie('record-cleaner');
+    }
   }
-
 }
