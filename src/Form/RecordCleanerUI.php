@@ -899,10 +899,8 @@ class RecordCleanerUI extends FormBase {
 
       // Save the output file information in the form_state storage as there
       // are no inputs to propagate it in form_state values.
-      $form_state->set('file_validate', [
-        'fid' => $fileOut->id(),
-        'uri' => $fileOutUri,
-      ]);
+      $form_state->set(['file_validate', 'fid'], $fileOut->id());
+      $form_state->set(['file_validate', 'uri'], $fileOutUri);
     }
 
     $form['settings'] = [
@@ -1086,10 +1084,8 @@ class RecordCleanerUI extends FormBase {
 
       // Save the output file information in the form_state storage as there
       // are no inputs to propagate it in form_state values.
-      $form_state->set('file_verify', [
-        'fid' => $fileOut->id(),
-        'uri' => $fileOutUri,
-      ]);
+      $form_state->set(['file_verify', 'fid'], $fileOut->id());
+      $form_state->set(['file_verify', 'uri'], $fileOutUri);
     }
 
     // All rules checkbox.
