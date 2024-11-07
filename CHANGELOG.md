@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - This CHANGELOG file.
+- Upload of Excel files, #9
 - VC accignment to output, #6
 - Start Again buttons, #5
 - Save/Delete settings button and cookie, #3
@@ -17,7 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Empty records skipped, #8
-
 - Rule selection to include 'select all', #7
 - Rule selection to apply to all sub-selectors, #7
 - Results invalidated on going back to previous steps

@@ -10,9 +10,41 @@ namespace Drupal\record_cleaner\Service;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManager;
 use Drupal\record_cleaner\Service\ApiHelper;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Exception;
+use PhpOffice\PhpSpreadsheet\Reader\IReader;
 
+/**
+ * Filter to load a range of rows.
+ */
+class MyRowFilter implements IReadFilter {
+  private $startRow;
+  private $endRow;
 
+  /**
+   * Constructor for row filter.
+   *
+   * @param int $startRow
+   *   The first row to read.
+   * @param int $endRow
+   *   The last row to read. If 0, read to end.
+   */
+  public function __construct($startRow = 1, $endRow = 0) {
+    $this->startRow = $startRow;
+    $this->endRow = $endRow;
+  }
+
+  public function readCell(string $col, int $row, string $sheet = ''): bool {
+    if ($row >= $this->startRow) {
+      if ($this->endRow > 0 && $row > $this->endRow) {
+        return FALSE;
+      }
+      return TRUE;
+    }
+    return FALSE;
+  }
+}
 
 class FileHelper {
   public function __construct(
@@ -35,33 +67,25 @@ class FileHelper {
   }
 
   /**
-   * Get the number of lines in a file.
+   * Get the number of lines in a file of records.
    *
    * @param string $filePath The absolute path of the file.
    *
    * @return int The number of lines in the file.
    */
   public function getLength($filePath) {
-    // Count from -1 to omit the header.
-    $lines = -1;
-    $buffer = '';
-    $fp = fopen($filePath, 'rb');
-
-    while (!feof($fp)) {
-        $buffer = fread($fp, 8192);
-        $lines += substr_count($buffer, "\n");
-    }
-
-    fclose($fp);
-    // Include any last line without a newline termination.
-    if (strlen($buffer) > 0 && $buffer[-1] != "\n") {
-        ++$lines;
-    }
-    return $lines;
+    $reader = IOFactory::createReaderForFile($filePath,
+      [IOFactory::READER_CSV, IOFactory::READER_XLSX]
+    );
+    $spreadsheet = $reader->load($filePath);
+    $worksheet = $spreadsheet->getActiveSheet();
+    $lines = $worksheet->getHighestDataRow();
+    // Omit header from count
+    return $lines - 1;
   }
 
   /**
-   * Get the columns in a CSV file from the header row.
+   * Get the columns in a file from the header row.
    *
    * @param string $fileUri The URI of the file.
    *
@@ -69,14 +93,23 @@ class FileHelper {
    */
   public function getColumns($fileUri) {
     $filePath = $this->getFilePath($fileUri);
-    $fp = fopen($filePath, 'r');
-    $columns = fgetcsv($fp);
-    fclose($fp);
-    return $columns;
+
+    // Limit to csv, xlsx.
+    $reader = IOFactory::createReaderForFile($filePath,
+      [IOFactory::READER_CSV, IOFactory::READER_XLSX]
+    );
+    // Filter to first row.
+    $reader->setReadFilter(new MyRowFilter(1, 1));
+    $spreadsheet = $reader->load($filePath);
+    $worksheet = $spreadsheet->getActiveSheet();
+    // Convert to 2D array
+    $array = $worksheet->toArray();
+    // Return first row.
+    return $array[0];
   }
 
   /**
-   * Send the contents of the CSV file to the record cleaner service.
+   * Send the contents of a file to the record cleaner service.
    *
    * Data from the source file, described in $settings['source']['mappings],
    * is submitted to the record cleaner service. The response is written to file
@@ -98,25 +131,41 @@ class FileHelper {
     $count = 1;
 
     try {
-      $fpIn = fopen($fileInPath, 'r');
       $fpOut = fopen($fileOutPath, 'w');
-      // Skip the first line of the input file.
-      fgetcsv($fpIn);
+      if ($fpOut === FALSE) {
+        $this->logger->error(
+          'Unable to open output file, %fileOutPath.',
+          ['%fileOutPath' => $fileOutPath]
+        );
+        throw new Exception("Unable to open output file, $fileOutPath.");
+      }
       // Write the header to the output file.
       $row = $this->getOutputFileHeader($settings);
       fputcsv($fpOut, $row);
 
+      $reader = IOFactory::createReaderForFile($fileInPath,
+        [IOFactory::READER_CSV, IOFactory::READER_XLSX]
+      );
+      // Skip empty rows.
+      $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
+      $worksheet = $spreadsheet->getActiveSheet();
+
       // Loop through rest of the input file line by line.
-      while (($row = fgetcsv($fpIn)) !== FALSE) {
-        // Skip empty rows.
-        if ($this->isEmptyRow($row)) {
+      foreach ($worksheet->getRowIterator() as $row) {
+        // Skip header row.
+        if ($row->getRowIndex() == 1) {
           continue;
+        }
+        // Extract data from $row into array.
+        $rowArray = [];
+        foreach ($row->getCellIterator() as $cell) {
+          $rowArray[] = $cell->getValue();
         }
 
         // Format data for submission to API.
-        $recordChunk[] = $this->buildRecordSubmission($row, $count, $settings);
+        $recordChunk[] = $this->buildRecordSubmission($rowArray, $count, $settings);
         // Save additional data for output file.
-        list($id, $value) = $this->getAdditionalData($row, $count, $settings);
+        list($id, $value) = $this->getAdditionalData($rowArray, $count, $settings);
         $additionalChunk[$id] = $value;
         // Send to the service in chunks.
         if ($count % $chunk_size == 0) {
@@ -141,7 +190,6 @@ class FileHelper {
       $errors[] = $e->getMessage();
     }
     finally {
-      fclose($fpIn);
       fclose($fpOut);
       return $errors;
     }

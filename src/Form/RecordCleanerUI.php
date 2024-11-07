@@ -146,15 +146,15 @@ class RecordCleanerUI extends FormBase {
     $form['file_upload'] = [
       '#type' => 'managed_file',
       '#title' => $this->t('Data File'),
-      '#description' => $this->t("Please select a CSV file containing your data.
-      The first row must be a header with the column names. The file must
-      contain at least a date, a location and a taxon name or taxon version key.
-      "),
+      '#description' => $this->t("Please select a CSV or Excel file containing
+      your data. The first row must be a header with the column names. The file
+      must contain at least a date, a location and a taxon name or taxon version
+      key."),
       '#required' => TRUE,
       '#default_value' =>  $form_state->getValue('file_upload'),
       '#upload_validators' => [
         'FileExtension' => [
-          'extensions' => 'csv',
+          'extensions' => 'csv xlsx',
         ],
         // Implement an EventSubscriber to add your custom validation code that
         // can add to the ConstraintViolationList.
@@ -228,17 +228,26 @@ class RecordCleanerUI extends FormBase {
     ]);
 
     // Get a list of columns in the file.
-    $fileColumns = $this->csvHelper->getColumns($fileUri);
-    $form_state->set(['file_upload', 'columns'], $fileColumns);
+    try {
+      $fileColumns = $this->fileHelper->getColumns($fileUri);
+      $form_state->set(['file_upload', 'columns'], $fileColumns);
 
-    // Log the uploaded file.
-    $this->logger->notice(
-      $this->t("File uploaded: %file (fid=%fid)"),
-      ['%file' => $fileUri, '%fid' => $fid]
-    );
+      // Log the uploaded file.
+      $this->logger->notice(
+        $this->t("File uploaded: %file (fid=%fid)"),
+        ['%file' => $fileUri, '%fid' => $fid]
+      );
 
-    // Advance to the next step.
-    $this->moveForward($form_state);
+      // Advance to the next step.
+      $this->moveForward($form_state);
+    }
+    catch (\Exception $e) {
+      $this->logger->error(
+        $this->t("Error reading file: %file (fid=%fid): %error",
+          ['%file' => $fileUri, '%fid' => $fid, '%error' => $e->getMessage()])
+      );
+    }
+
   }
 
 /********************* FIELD MAPPING FORM *********************/
@@ -410,10 +419,10 @@ class RecordCleanerUI extends FormBase {
           break;
     }
 
-    // Each of the selectors which map columns in the CSV file to the
+    // Each of the selectors which map columns in the input file to the
     // required fields has its options recalculated every time the form is
     // built. The options are keyed by column number and the value is the
-    // column heading from the first row of the CSV file.
+    // column heading from the first row of the file.
     $fileColumns = $form_state->get(['file_upload', 'columns']);
     $unusedColumns = $this->getUnusedColumns($form_state);
 
@@ -558,10 +567,10 @@ class RecordCleanerUI extends FormBase {
         break;
     }
 
-    // Each of the selectors which map columns in the CSV file to the
+    // Each of the selectors which map columns in the input file to the
     // required fields has its options recalculated every time the form is
     // built. The options are keyed by column number and the value is the
-    // column heading from the first row of the CSV file.
+    // column heading from the first row of the file.
     $fileColumns = $form_state->get(['file_upload', 'columns']);
     $unusedColumns = $this->getUnusedColumns($form_state);
 
@@ -877,9 +886,16 @@ class RecordCleanerUI extends FormBase {
     if (!$form_state->has(['file_validate', 'uri'])) {
       // Obtain the input file URI (private://record-cleaner{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
-      // Create an output file URI by appending _validate to the input URI.
-      // -4 means before the '.csv' characters.
-      $fileOutUri = substr_replace($fileInUri, '_validate', -4, 0);
+      // Create an output file URI by removing any extension and appending
+      // _validate.csv to the input URI.
+      $extPos = strrpos($fileInUri, '.', );
+      if ($extPos === false) {
+        // No extension.
+        $fileOutUri = $fileInUri . '_validate.csv';
+      }
+      else {
+        $fileOutUri = substr($fileInUri, 0, $extPos) . '_validate.csv';
+      }
       // Create a file entity for the output file.
       $fileOut = File::create([
         'uri' => $fileOutUri,
@@ -1062,9 +1078,16 @@ class RecordCleanerUI extends FormBase {
     if (!$form_state->has(['file_verify', 'uri'])) {
       // Obtain the input file URI (private://record-cleaner/{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
-      // Create an output file URI by appending _verify to the input URI.
-      // -4 means before the '.csv' characters.
-      $fileOutUri = substr_replace($fileInUri, '_verify', -4, 0);
+      // Create an output file URI by removing any extension and appending
+      // _verify.csv to the input URI.
+      $extPos = strrpos($fileInUri, '.', );
+      if ($extPos === false) {
+        // No extension.
+        $fileOutUri = $fileInUri . '_verify.csv';
+      }
+      else {
+        $fileOutUri = substr($fileInUri, 0, $extPos) . '_verify.csv';
+      }
       // Create a file entity for the output file.
       $fileOut = File::create([
         'uri' => $fileOutUri,

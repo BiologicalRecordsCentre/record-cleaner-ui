@@ -32,7 +32,8 @@
             "drupal/core-composer-scaffold": true,
             "drupalspoons/composer-plugin": true,
             "phpstan/extension-installer": true,
-            "php-http/discovery": true
+            "php-http/discovery": true,
+            "tbachert/spi": true
         }
     },
     "extra": {
@@ -66,5 +67,8 @@
                 "drush.services.yml": "^9 || ^10 || ^11"
             }
         }
+    },
+    "require": {
+        "phpoffice/phpspreadsheet": "^3.3"
     }
 }
