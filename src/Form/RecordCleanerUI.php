@@ -10,7 +10,7 @@ use Drupal\Core\File\FileUrlGenerator;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
-use Drupal\Core\Render\Element;
+use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
 use Drupal\file\Entity\File;
@@ -53,6 +53,8 @@ class RecordCleanerUI extends FormBase {
    *   The entity type manager service.
    * @param \Drupal\Core\File\FileUrlGenerator $fileUrlGenerator
    *   The file URL generator service.
+   * @param \Drupal\Core\Render\RendererInterface $renderer
+   *   The renderer service.
    *
    * @see https://php.watch/versions/8.0/constructor-property-promotion
    */
@@ -64,6 +66,7 @@ class RecordCleanerUI extends FormBase {
     protected AccountProxyInterface $currentUser,
     protected EntityTypeManager $entityTypeManager,
     protected FileUrlGenerator $fileUrlGenerator,
+    protected RendererInterface $renderer,
   ) {
     $this->gridSystems = [
       '27700' => $this->t('British gridref (e.g.SM123456)'),
@@ -94,6 +97,7 @@ class RecordCleanerUI extends FormBase {
       $container->get('current_user'),
       $container->get('entity_type.manager'),
       $container->get('file_url_generator'),
+      $container->get('renderer'),
     );
   }
 
@@ -967,9 +971,7 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['validate']['output'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'pre',
-      '#value' => '',
+      '#type' => 'container',
     ];
 
     // Add a hidden input to control state of other items.
@@ -979,19 +981,6 @@ class RecordCleanerUI extends FormBase {
     $form['validate']['validate-result'] = [
       '#type' => 'hidden',
       '#default_value' => $form_state->getValue('validate-result', '0'),
-    ];
-
-    // Add a link to the validated file shown after validation.
-    $url = $this->fileUrlGenerator->generateAbsoluteString(
-      $form_state->get(['file_validate', 'uri'])
-    );
-    $form['validate']['link'] = [
-      '#type' => 'link',
-      '#title' => $this->t('Validated file'),
-      '#url' => Url::fromUri($url),
-      '#states' => ['visible' =>
-        ['input[name="validate-result"]' => ['!value' => '0']],
-      ],
     ];
 
     // 'actions' are within the 'validate' container in order for the
@@ -1242,9 +1231,7 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['verify']['output'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'pre',
-      '#value' => '',
+      '#type' => 'container',
     ];
 
     // Add a hidden input to control state of other items.
@@ -1254,19 +1241,6 @@ class RecordCleanerUI extends FormBase {
     $form['verify']['verify-result'] = [
       '#type' => 'hidden',
       '#default_value' => $form_state->getValue('verify-result', '0'),
-    ];
-
-    // Add a link to the verified file.
-    $url = $this->fileUrlGenerator->generateAbsoluteString(
-      $form_state->get(['file_verify', 'uri'])
-    );
-    $form['verify']['link'] = [
-      '#type' => 'link',
-      '#title' => $this->t('Verified file'),
-      '#url' => Url::fromUri($url),
-      '#states' => ['visible' =>
-        ['input[name="verify-result"]' => ['!value' => '0']],
-      ],
     ];
 
     $form['actions'] = [
@@ -1418,22 +1392,41 @@ class RecordCleanerUI extends FormBase {
     }
 
     // Send to the file helper service.
-    $errors = $this->fileHelper->submit($settings);
+    list($success, $count, $messages) = $this->fileHelper->submit($settings);
 
-    // Store results.
-    if (count($errors) == 0) {
-      $output = "$action successful.";
-      $result = 'pass';
-    }
-    else {
-      $output = print_r($errors, TRUE);
-      $result = 'fail';
-    }
+    // Display results.
+    $result = $success ? 'pass' : 'fail';
 
-    $form_state->setValue("$action-result", $result);
+    $form[$action]['output']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h3',
+      '#value' => ucfirst($action) . ' ' .  ucfirst($result) . 'ed',
+    ];
+    $form[$action]['output']['count'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => "$count records were checked.",
+    ];
+    $form[$action]['output']['messages'] = $this->getMessageSummary($messages);
+
+    $url = $this->fileUrlGenerator->generateAbsoluteString(
+      $form_state->get([$output, 'uri'])
+    );
+    $link = [
+      '#type' => 'link',
+      '#title' => $this->t("$action file"),
+      '#url' => Url::fromUri($url),
+    ];
+    $link =$this->renderer->render($link);
+    $form[$action]['output']['link'] = [
+      '#type' => 'markup',
+      '#markup' => '<p>' . $this->t('Please download the ') . $link .
+        $this->t(' for more information. If you have errors, edit your data
+        and re-upload to complete the checking process.' . '</p>'),
+    ];
 
     // Add the results to the form which has been built already.
-    $form[$action]['output']['#value'] = $output;
+    $form_state->setValue("$action-result", $result);
     $form[$action]["$action-result"]['#value'] = $result;
 
     return $form[$action];
@@ -1703,6 +1696,46 @@ class RecordCleanerUI extends FormBase {
       $summary[] = [$title, $value];
     }
 
+    return $summary;
+  }
+
+  public function getMessageSummary($messages) {
+    $nrMessages = count($messages);
+    // Return nothing if there were no messages.
+    if ($nrMessages == 0) {
+      return [];
+    }
+
+    // Accumulate count of each type of message.
+    $counts = [];
+    foreach($messages as $message) {
+      if (array_key_exists($message, $counts)) {
+        $counts[$message] += 1;
+      }
+      else {
+        $counts[$message] = 1;
+      }
+    }
+
+    // Generate a table of counts.
+    if ($nrMessages == 1) {
+      $caption = $this->t('There was 1 message.');
+    }
+    else {
+      $caption = $this->t("There were $nrMessages messages.");
+    }
+
+    $rows = [];
+    foreach($counts as $message => $count) {
+      $rows[] = [$message, $count];
+    }
+
+    $summary = [
+      '#type' => 'table',
+      '#header' => [$this->t('Message'), $this->t('Count')],
+      '#rows' => $rows,
+      '#caption' => $caption,
+    ];
     return $summary;
   }
 

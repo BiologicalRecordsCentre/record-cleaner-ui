@@ -127,8 +127,9 @@ class FileHelper {
 
     $recordChunk = [];
     $additionalChunk = [];
-    $errors = [];
-    $count = 1;
+    $messages = [];
+    $count = 0;
+    $success = TRUE;
 
     try {
       $fpOut = fopen($fileOutPath, 'w');
@@ -161,6 +162,8 @@ class FileHelper {
         foreach ($row->getCellIterator() as $cell) {
           $rowArray[] = $cell->getValue();
         }
+        // Keep count of lines processed.
+        $count++;
 
         // Format data for submission to API.
         $recordChunk[] = $this->buildRecordSubmission($rowArray, $count, $settings);
@@ -169,34 +172,42 @@ class FileHelper {
         $additionalChunk[$id] = $value;
         // Send to the service in chunks.
         if ($count % $chunk_size == 0) {
-          $errors += $this->submitChunk(
+          list($chunkSuccess, $chunkMessages) = $this->submitChunk(
             $recordChunk, $additionalChunk, $settings, $fpOut
           );
+          // Accumulate results from chunks.
+          $messages += $chunkMessages;
+          if (!$chunkSuccess) {
+            $success = FALSE;
+          }
+          // Reset chunk.
           $recordChunk = [];
           $additionalChunk = [];
-        }
-        else {
-          $count++;
         }
       }
       // Validate the last partial chunk.
       if ($count % $chunk_size != 0) {
-        $errors += $this->submitChunk(
+        list($chunkSuccess, $chunkMessages) = $this->submitChunk(
           $recordChunk, $additionalChunk, $settings, $fpOut
         );
+        $messages += $chunkMessages;
+        if (!$chunkSuccess) {
+          $success = FALSE;
+        }
       }
     }
     catch (\Exception $e) {
-      $errors[] = $e->getMessage();
+      $messages[] = $e->getMessage();
     }
     finally {
       fclose($fpOut);
-      return $errors;
+      return [$success, $count, $messages];
     }
   }
 
   public function submitChunk($recordChunk, $additionalChunk, $settings, $fpOut) {
-    $errors = [];
+    $messages = [];
+    $success = TRUE;
 
     // Submit chunk to relevant service.
     if ($settings['action'] == 'validate') {
@@ -212,18 +223,19 @@ class FileHelper {
       $records = json_decode($json, TRUE)['records'];
     }
 
-    // Loop through results accumulating errors and outputting to file.
+    // Loop through results accumulating messages and outputting to file.
     foreach ($records as $record) {
       if ($record['ok'] == FALSE) {
-        $errors = array_merge($errors, $record['messages']);
+        $success = FALSE;
       }
+      $messages = array_merge($messages, $record['messages']);
       $idValue = $record['id'];
       $additional = $additionalChunk[$idValue];
 
       $row = $this->getOutputFileRow($record, $additional, $settings);
       fputcsv($fpOut, $row);
     }
-    return $errors;
+    return [$success, $messages];
   }
 
   public function getAdditionalData($row, $count, $settings) {

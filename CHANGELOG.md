@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- On screen results display improved, #10
 - Empty records skipped, #8
 - Rule selection to include 'select all', #7
 - Rule selection to apply to all sub-selectors, #7
