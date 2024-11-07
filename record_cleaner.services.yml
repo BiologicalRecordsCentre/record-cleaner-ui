@@ -19,8 +19,8 @@ services:
     tags:
       - { name: 'event_subscriber' }
 
-  record_cleaner.csv_helper:
-    class: Drupal\record_cleaner\Service\CsvHelper
+  record_cleaner.file_helper:
+    class: Drupal\record_cleaner\Service\FileHelper
     arguments:
       - '@record_cleaner.logger_channel'
       - '@stream_wrapper_manager'

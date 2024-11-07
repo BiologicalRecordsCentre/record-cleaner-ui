@@ -16,7 +16,7 @@ use Drupal\Core\Url;
 use Drupal\file\Entity\File;
 use Drupal\record_cleaner\Service\ApiHelper;
 use Drupal\record_cleaner\Service\CookieHelper;
-use Drupal\record_cleaner\Service\CsvHelper;
+use Drupal\record_cleaner\Service\FileHelper;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -43,8 +43,8 @@ class RecordCleanerUI extends FormBase {
    *   The record_cleaner API helper service.
    * @param \Drupal\record_cleaner\Service\CookieHelper $cookieHelper
    *   The cookie helper service.
-   * @param \Drupal\record_cleaner\Service\CsvHelper $csvHelper
-   *   The record_cleaner csv file service.
+   * @param \Drupal\record_cleaner\Service\FileHelper $fileHelper
+   *   The record_cleaner file service.
    * @param \Drupal\Core\Logger\LoggerChannelInterface $logger
    *   The logger service for logging messages.
    * @param \Drupal\Core\Session\AccountProxyInterface $currentUser
@@ -59,7 +59,7 @@ class RecordCleanerUI extends FormBase {
   public function __construct(
     protected ApiHelper $apiHelper,
     protected CookieHelper $cookieHelper,
-    protected CsvHelper $csvHelper,
+    protected FileHelper $fileHelper,
     protected LoggerChannelInterface $logger,
     protected AccountProxyInterface $currentUser,
     protected EntityTypeManager $entityTypeManager,
@@ -89,7 +89,7 @@ class RecordCleanerUI extends FormBase {
     return new static (
       $container->get('record_cleaner.api_helper'),
       $container->get('record_cleaner.cookie_helper'),
-      $container->get('record_cleaner.csv_helper'),
+      $container->get('record_cleaner.file_helper'),
       $container->get('record_cleaner.logger_channel'),
       $container->get('current_user'),
       $container->get('entity_type.manager'),
@@ -1394,8 +1394,8 @@ class RecordCleanerUI extends FormBase {
       $settings['org_group_rules'] = $this->getOrgGroupRules($form_state);
     }
 
-    // Send to the csv helper service.
-    $errors = $this->csvHelper->submit($settings);
+    // Send to the file helper service.
+    $errors = $this->fileHelper->submit($settings);
 
     // Store results.
     if (count($errors) == 0) {

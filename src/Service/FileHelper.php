@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Contains \Drupal\record_cleaner\Service\CsvHelper.
+ * Contains \Drupal\record_cleaner\Service\FileHelper.
  */
 
 namespace Drupal\record_cleaner\Service;
@@ -14,7 +14,7 @@ use Exception;
 
 
 
-class CsvHelper {
+class FileHelper {
   public function __construct(
     protected LoggerChannelInterface $logger,
     protected StreamWrapperManager $streamWrapperManager,
