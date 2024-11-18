@@ -282,7 +282,6 @@ class FileHelper {
       $function = $column['function'];
 
       switch ($function) {
-        case 'id_difficulty':
         case 'messages':
           // Combine array fields into a single string.
           $row[] = implode("\n", $record[$function]);

@@ -1812,12 +1812,6 @@ class RecordCleanerUI extends FormBase {
       ];
     }
 
-    $columns[] = [
-      'name' => 'Id Difficulty',
-      'function' => 'id_difficulty',
-      'column' => NULL,
-    ];
-
     // If a vice county is supplied, it is checked.
     // When it is not supplied, return the primary VC for the grid square.
     if (!array_key_exists('vc', $uploadMappings)) {
@@ -1859,15 +1853,20 @@ class RecordCleanerUI extends FormBase {
    *
    */
   public function getVerifyColumns(array $validateColumns) {
-    $columns = [];
-    foreach($validateColumns as $colNum => $column) {
-      // Omit ID difficulty from verification file.
-      if ($column['function'] == 'id_difficulty') {
-        continue;
-      }
-      $column['column'] = $colNum;
-      $columns[] = $column;
-    }
+    $columns = $validateColumns;
+
+    // Insert Id difficulty column before messages and ok columns.
+    $messages = array_pop($columns);
+    $ok = array_pop($columns);
+
+    $columns[] = [
+      'name' => 'Id Difficulty',
+      'function' => 'id_difficulty',
+      'column' => NULL,
+    ];
+
+    array_push($columns, $ok);
+    array_push($columns,$messages);
 
     return $columns;
   }
