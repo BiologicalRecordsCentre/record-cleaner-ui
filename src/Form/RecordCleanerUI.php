@@ -983,6 +983,17 @@ class RecordCleanerUI extends FormBase {
       '#default_value' => $form_state->getValue('validate-result', '0'),
     ];
 
+    $form['validate']['continue'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Continue to verification'),
+      '#description' => $this->t('Proceed with verification, dropping invalid
+      records.'),
+      '#default_value' => 0,
+      '#states' => ['visible' =>
+        ['input[name="validate-result"]' => ['value' => 'fail']]
+      ],
+    ];
+
     // 'actions' are within the 'validate' container in order for the
     // Next button to change state after the validation callback.
     $form['validate']['actions'] = [
@@ -1016,8 +1027,12 @@ class RecordCleanerUI extends FormBase {
       '#type' => 'submit',
       '#button_type' => 'primary',
       '#value' => $this->t('Next'),
-      '#states' => ['enabled' =>
-        ['input[name="validate-result"]' => ['value' => 'pass']]
+      '#states' => [
+        'enabled' => [
+          ['input[name="validate-result"]' => ['value' => 'pass']],
+          'or',
+          ['input[name="continue"]' => ['checked' => TRUE]]
+        ],
       ],
       '#submit' => ['::forwardFromValidateForm'],
     ];
@@ -1409,6 +1424,7 @@ class RecordCleanerUI extends FormBase {
     ];
     $form[$action]['output']['messages'] = $this->getMessageSummary($messages);
 
+    // Display a link to the output file.
     $url = $this->fileUrlGenerator->generateAbsoluteString(
       $form_state->get([$output, 'uri'])
     );
@@ -1889,11 +1905,15 @@ class RecordCleanerUI extends FormBase {
    *
    * This is needed to pick the correct data from the validated file to insert
    * in to the submission to the verification service.
+   *
+   * @param array $columns  The columns in the validate file.
+   *
+   * @return array An array of column numbers keyed by function.
    */
   public function getValidateMappings($columns) {
     $mappings = [];
     $functions = [
-      'id', 'date', 'tvk', 'vc', 'stage', 'coord1', 'coord2', 'precision'
+      'id', 'date', 'tvk', 'vc', 'stage', 'coord1', 'coord2', 'precision', 'ok'
     ];
     foreach($columns as $colNum => $column) {
       $colFunction = $column['function'];

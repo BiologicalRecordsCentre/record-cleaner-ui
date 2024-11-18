@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - ID difficulty moved to verification output, #12
+- Allow verification after validation by dropping failed records, #11
 - On screen results display improved, #10
 - Empty records skipped, #8
 - Rule selection to include 'select all', #7

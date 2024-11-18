@@ -162,9 +162,13 @@ class FileHelper {
         foreach ($row->getCellIterator() as $cell) {
           $rowArray[] = $cell->getValue();
         }
+        // Skip validation failures during verification.
+        if ($this->isValidationFailure($rowArray, $settings)) {
+          continue;
+        }
+
         // Keep count of lines processed.
         $count++;
-
         // Format data for submission to API.
         $recordChunk[] = $this->buildRecordSubmission($rowArray, $count, $settings);
         // Save additional data for output file.
@@ -351,10 +355,10 @@ class FileHelper {
             else {
               // During verification, vc is passed through in additional data.
               $row[] = $additional[$colNum];
-          }
-          break;
+            }
+            break;
 
-        case 'ok':
+          case 'ok':
           $row[] = $record[$function] ? 'Y' : 'N';
           break;
 
@@ -459,6 +463,25 @@ class FileHelper {
     }
 
     return $record;
+  }
+
+  /**
+   * Determine if $row has failed validation.
+   */
+  public function isValidationFailure($row, $settings) {
+    if ($settings['action'] == 'validate') {
+      // Not yet validated so return early.
+      return FALSE;
+    }
+
+    // Find the index of the ok field.
+    $okField = $settings['source']['mappings']['ok'];
+    if ($row[$okField] == 'N') {
+      return TRUE;
+    }
+    else {
+      return FALSE;
+    }
   }
 
 }
