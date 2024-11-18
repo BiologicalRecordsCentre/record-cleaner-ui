@@ -449,12 +449,4 @@ class FileHelper {
     return $record;
   }
 
-  public function isEmptyRow($row) {
-    foreach ($row as $value) {
-      if ($value !== '') {
-        return FALSE;
-      }
-    }
-    return TRUE;
-  }
 }
