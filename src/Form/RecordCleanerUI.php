@@ -1826,10 +1826,12 @@ class RecordCleanerUI extends FormBase {
     // If a vice county is supplied, it is checked.
     // When it is not supplied, return the primary VC for the grid square.
     if (!array_key_exists('vc', $uploadMappings)) {
+      // Set the column index as we will need it to pass through the value to
+      // the verification file.
       $columns[] = [
         'name' => 'VC Estimate',
         'function' => 'vc',
-        'column' => NULL,
+        'column' => count($columns),
       ];
     }
 

@@ -247,12 +247,13 @@ class FileHelper {
 
     // Construct an array of the values to pass through, keyed by output column
     // number. Stage is passed through during validation as we need it for
-    // verification.
+    // verification. VC is passed trhough during verification.
     $data = [];
     foreach($settings['output']['columns'] as $colNum => $value) {
       if (
         $value['function'] == 'additional' ||
-        ($value['function'] == 'stage' && $settings['action'] == 'validate')
+        ($value['function'] == 'stage' && $settings['action'] == 'validate') ||
+        ($value['function'] == 'vc' && $settings['action'] == 'verify')
       ) {
         $data[$colNum] = $row[$value['column']];
       }
@@ -339,6 +340,17 @@ class FileHelper {
           else {
             // During verification, stage is returned in the record.
             $row[] = $record[$function];
+          }
+          break;
+
+          case 'vc':
+            if ($settings['action'] == 'validate') {
+              // During validation, vc is returned in the record.
+              $row[] = $record[$function];
+            }
+            else {
+              // During verification, vc is passed through in additional data.
+              $row[] = $additional[$colNum];
           }
           break;
 
