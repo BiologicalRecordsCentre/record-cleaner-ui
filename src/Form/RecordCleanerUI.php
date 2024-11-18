@@ -1798,7 +1798,7 @@ class RecordCleanerUI extends FormBase {
       $columns[] = [
         'name' => 'Id',
         'function' => 'id',
-        'column' => NULL,
+        'column' => 0,
       ];
     }
 

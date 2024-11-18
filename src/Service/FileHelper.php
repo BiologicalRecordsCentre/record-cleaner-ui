@@ -240,9 +240,9 @@ class FileHelper {
 
   public function getAdditionalData($row, $count, $settings) {
     // Attach the same id to the additional data as the validation data
-    // so that they can be joined up again after calling the validation service.
+    // so that they can be joined up again after calling the service.
     $mappings = $settings['source']['mappings'];
-    $idField = $mappings['id_field'] ?? 'auto';
+    $idField = $mappings['id'] ?? 'auto';
     $idValue = $idField == 'auto' ? $count : $row[$idField];
 
     // Construct an array of the values to pass through, keyed by output column

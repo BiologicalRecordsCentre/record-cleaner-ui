@@ -25,8 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Results invalidated on going back to previous steps
 
 ### Fixed
+- Always auto-numbering record id for additional data.
 - Verification file link showing before verification, #4
-- Summary of additional columns
+- On-screen summary of additional columns
 
 ### Removed
 
