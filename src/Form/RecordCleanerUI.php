@@ -1717,6 +1717,9 @@ class RecordCleanerUI extends FormBase {
       }
     }
 
+    // Sort the counts by message.
+    ksort($counts);
+
     // Generate a table of counts.
     if ($nrMessages == 1) {
       $caption = $this->t('There was 1 message.');
@@ -1727,6 +1730,14 @@ class RecordCleanerUI extends FormBase {
 
     $rows = [];
     foreach($counts as $message => $count) {
+      // Omit difficulty details.
+      // Difficulty messages have the form:
+      // {organisation}:{group}:difficulty:{id_difficulty}:{details}
+      $pos = strpos($message, ':difficulty:');
+      if ($pos !== FALSE) {
+        $length = $pos + strlen(':difficulty:n');
+        $message = substr($message, 0, $length);
+      }
       $rows[] = [$message, $count];
     }
 
