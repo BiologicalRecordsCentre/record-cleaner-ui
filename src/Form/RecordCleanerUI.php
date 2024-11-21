@@ -179,7 +179,7 @@ class RecordCleanerUI extends FormBase {
 
       $form['storage']['info'] = [
         '#type' => 'item',
-        '#title' => $this->t('Delete Settings'),
+        '#title' => $this->t('Saved Settings'),
         '#description' => $this->t("If you have changed file format, you should
         delete saved settings."),
       ];
@@ -1407,7 +1407,7 @@ class RecordCleanerUI extends FormBase {
     }
 
     // Send to the file helper service.
-    list($success, $count, $messages) = $this->fileHelper->submit($settings);
+    list($success, $counts, $messages) = $this->fileHelper->submit($settings);
 
     // Display results.
     $result = $success ? 'pass' : 'fail';
@@ -1420,8 +1420,11 @@ class RecordCleanerUI extends FormBase {
     $form[$action]['output']['count'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => "$count records were checked.",
-    ];
+      '#value' => "{$counts['total']} records were checked. <br/>" .
+        "{$counts['pass']} records passed. <br/>" .
+        "{$counts['warn']} records had warnings. <br/>" .
+        "{$counts['fail']} records failed.",
+      ];
     $form[$action]['output']['messages'] = $this->getMessageSummary($messages);
 
     // Display a link to the output file.
@@ -1737,13 +1740,6 @@ class RecordCleanerUI extends FormBase {
     ksort($counts);
 
     // Generate a table of counts.
-    if ($nrMessages == 1) {
-      $caption = $this->t('There was 1 message.');
-    }
-    else {
-      $caption = $this->t("There were $nrMessages messages.");
-    }
-
     $rows = [];
     foreach($counts as $message => $count) {
       // Omit difficulty details.
@@ -1761,7 +1757,7 @@ class RecordCleanerUI extends FormBase {
       '#type' => 'table',
       '#header' => [$this->t('Message'), $this->t('Count')],
       '#rows' => $rows,
-      '#caption' => $caption,
+      '#caption' => $this->t('Message Summary'),
     ];
     return $summary;
   }
@@ -1852,8 +1848,8 @@ class RecordCleanerUI extends FormBase {
     }
 
     $columns[] = [
-      'name' => 'Pass',
-      'function' => 'ok',
+      'name' => 'Result',
+      'function' => 'result',
       'column' => NULL,
     ];
 
@@ -1884,9 +1880,9 @@ class RecordCleanerUI extends FormBase {
   public function getVerifyColumns(array $validateColumns) {
     $columns = $validateColumns;
 
-    // Insert Id difficulty column before messages and ok columns.
+    // Insert Id difficulty before result and messages.
     $messages = array_pop($columns);
-    $ok = array_pop($columns);
+    $result = array_pop($columns);
 
     $columns[] = [
       'name' => 'Id Difficulty',
@@ -1894,7 +1890,7 @@ class RecordCleanerUI extends FormBase {
       'column' => NULL,
     ];
 
-    array_push($columns, $ok);
+    array_push($columns,$result);
     array_push($columns,$messages);
 
     return $columns;

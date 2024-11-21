@@ -130,6 +130,7 @@ class FileHelper {
     $messages = [];
     $count = 0;
     $success = TRUE;
+    $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
 
     try {
       $fpOut = fopen($fileOutPath, 'w');
@@ -176,14 +177,15 @@ class FileHelper {
         $additionalChunk[$id] = $value;
         // Send to the service in chunks.
         if ($count % $chunk_size == 0) {
-          list($chunkSuccess, $chunkMessages) = $this->submitChunk(
+          list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitChunk(
             $recordChunk, $additionalChunk, $settings, $fpOut
           );
           // Accumulate results from chunks.
-          $messages += $chunkMessages;
-          if (!$chunkSuccess) {
-            $success = FALSE;
+          $success = $success && $chunkSuccess;
+          foreach ($chunkCounts as $key => $value) {
+            $counts[$key] += $value;
           }
+          $messages += $chunkMessages;
           // Reset chunk.
           $recordChunk = [];
           $additionalChunk = [];
@@ -191,13 +193,15 @@ class FileHelper {
       }
       // Validate the last partial chunk.
       if ($count % $chunk_size != 0) {
-        list($chunkSuccess, $chunkMessages) = $this->submitChunk(
+        list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitChunk(
           $recordChunk, $additionalChunk, $settings, $fpOut
         );
-        $messages += $chunkMessages;
-        if (!$chunkSuccess) {
-          $success = FALSE;
+        // Accumulate results from partial chunk.
+        $success = $success && $chunkSuccess;
+        foreach ($chunkCounts as $key => $value) {
+          $counts[$key] += $value;
         }
+        $messages += $chunkMessages;
       }
     }
     catch (\Exception $e) {
@@ -205,12 +209,14 @@ class FileHelper {
     }
     finally {
       fclose($fpOut);
-      return [$success, $count, $messages];
+      $counts['total'] = $count;
+      return [$success, $counts, $messages];
     }
   }
 
   public function submitChunk($recordChunk, $additionalChunk, $settings, $fpOut) {
     $messages = [];
+    $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
     $success = TRUE;
 
     // Submit chunk to relevant service.
@@ -229,9 +235,10 @@ class FileHelper {
 
     // Loop through results accumulating messages and outputting to file.
     foreach ($records as $record) {
-      if ($record['ok'] == FALSE) {
+      if ($record['result'] == 'fail') {
         $success = FALSE;
       }
+      $counts[$record['result']]++;
       $messages = array_merge($messages, $record['messages']);
       $idValue = $record['id'];
       $additional = $additionalChunk[$idValue];
@@ -239,7 +246,7 @@ class FileHelper {
       $row = $this->getOutputFileRow($record, $additional, $settings);
       fputcsv($fpOut, $row);
     }
-    return [$success, $messages];
+    return [$success, $counts, $messages];
   }
 
   public function getAdditionalData($row, $count, $settings) {
@@ -357,10 +364,6 @@ class FileHelper {
               $row[] = $additional[$colNum];
             }
             break;
-
-          case 'ok':
-          $row[] = $record[$function] ? 'Y' : 'N';
-          break;
 
         default:
           $row[] = $record[$function];

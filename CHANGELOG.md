@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Updated to support changes in service API.
 - ID difficulty moved to verification output, #12
 - Allow verification after validation by dropping failed records, #11
 - On screen results display improved, #10
