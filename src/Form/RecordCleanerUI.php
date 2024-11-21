@@ -1973,20 +1973,18 @@ class RecordCleanerUI extends FormBase {
     }
 
     $orgGroupRules = [];
-    $values = $form_state->getValues();
+    $checkboxes = $form_state->getValue('rules');
     // Build array of selected org group rules.
-    foreach($values['rules'] as $item => $value) {
+    foreach($checkboxes as $organisation => $value) {
       // Seek checked organisations.
       if ($value == 1) {
-        $organisation = $item;
         $groupContainer = "$organisation groups";
-        foreach($values['rules'][$groupContainer] as $item => $value) {
+        foreach($checkboxes[$groupContainer] as $group => $value) {
           // Seek checked groups.
           if ($value == 1) {
-            $group = $item;
             $ruleContainer = "$group rules";
             $rules = [];
-            foreach($values['rules'][$groupContainer][$ruleContainer] as $item => $value) {
+            foreach($checkboxes[$groupContainer][$ruleContainer] as $item => $value) {
               // Seek checked rules.
               if ($value == 1) {
                 // Convert '{Ruletype} Rule' to {ruletype}
