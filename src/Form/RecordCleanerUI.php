@@ -1728,6 +1728,10 @@ class RecordCleanerUI extends FormBase {
     // Accumulate count of each type of message.
     $counts = [];
     foreach($messages as $message) {
+      if (substr($message, 0, 10) == 'Rules run:') {
+        // Don't count success messages.
+        continue;
+      }
       if (array_key_exists($message, $counts)) {
         $counts[$message] += 1;
       }
