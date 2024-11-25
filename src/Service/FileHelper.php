@@ -477,9 +477,9 @@ class FileHelper {
       return FALSE;
     }
 
-    // Find the index of the ok field.
-    $okField = $settings['source']['mappings']['ok'];
-    if ($row[$okField] == 'N') {
+    // Find the index of the result field.
+    $resultField = $settings['source']['mappings']['result'];
+    if ($row[$resultField] == 'fail') {
       return TRUE;
     }
     else {

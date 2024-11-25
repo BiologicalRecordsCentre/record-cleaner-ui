@@ -1909,7 +1909,7 @@ class RecordCleanerUI extends FormBase {
   public function getValidateMappings($columns) {
     $mappings = [];
     $functions = [
-      'id', 'date', 'tvk', 'vc', 'stage', 'coord1', 'coord2', 'precision', 'ok'
+      'id', 'date', 'tvk', 'vc', 'stage', 'coord1', 'coord2', 'precision', 'result'
     ];
     foreach($columns as $colNum => $column) {
       $colFunction = $column['function'];
