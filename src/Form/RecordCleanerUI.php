@@ -182,6 +182,7 @@ class RecordCleanerUI extends FormBase {
         '#title' => $this->t('Saved Settings'),
         '#description' => $this->t("If you have changed file format, you should
         delete saved settings."),
+        '#smart_description' => FALSE,
       ];
 
       $form['storage']['delete'] = [
@@ -816,6 +817,7 @@ class RecordCleanerUI extends FormBase {
         '#title' => $this->t('Optional Fields'),
         '#description' => $this->t('There are no additional fields in the file
         for selection. Please proceed to the next step.'),
+        '#smart_description' => FALSE,
       ];
     }
     else {
@@ -952,6 +954,7 @@ class RecordCleanerUI extends FormBase {
       '#title' => $this->t('Save Settings'),
       '#description' => $this->t("Save your selections to your computer so you
        don't have to re-enter them."),
+       '#smart_description' => FALSE,
     ];
 
     $form['storage']['save'] = [
