@@ -352,8 +352,7 @@ class RecordCleanerUI extends FormBase {
       '#type' => 'select',
       '#title' => $this->t("Life Stage"),
       '#description' => $this->t("If present, please select the field in the
-      source data which holds the life stage. This can be a valid name or
-      number."),
+      source data which holds the life stage."),
       '#empty_option' => $this->t('- Select -'),
       '#options' => $stageFieldOptions,
       '#default_value' => $form_state->getValue('stage_field'),
