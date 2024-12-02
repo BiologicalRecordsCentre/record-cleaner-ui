@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Contains \Drupal\record_cleaner\Service\CsvHelper.
+ * Contains \Drupal\record_cleaner\Service\FileHelper.
  */
 
 namespace Drupal\record_cleaner\Service;
@@ -10,11 +10,43 @@ namespace Drupal\record_cleaner\Service;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManager;
 use Drupal\record_cleaner\Service\ApiHelper;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use Exception;
+use PhpOffice\PhpSpreadsheet\Reader\IReader;
 
+/**
+ * Filter to load a range of rows.
+ */
+class MyRowFilter implements IReadFilter {
+  private $startRow;
+  private $endRow;
 
+  /**
+   * Constructor for row filter.
+   *
+   * @param int $startRow
+   *   The first row to read.
+   * @param int $endRow
+   *   The last row to read. If 0, read to end.
+   */
+  public function __construct($startRow = 1, $endRow = 0) {
+    $this->startRow = $startRow;
+    $this->endRow = $endRow;
+  }
 
-class CsvHelper {
+  public function readCell(string $col, int $row, string $sheet = ''): bool {
+    if ($row >= $this->startRow) {
+      if ($this->endRow > 0 && $row > $this->endRow) {
+        return FALSE;
+      }
+      return TRUE;
+    }
+    return FALSE;
+  }
+}
+
+class FileHelper {
   public function __construct(
     protected LoggerChannelInterface $logger,
     protected StreamWrapperManager $streamWrapperManager,
@@ -35,33 +67,25 @@ class CsvHelper {
   }
 
   /**
-   * Get the number of lines in a file.
+   * Get the number of lines in a file of records.
    *
    * @param string $filePath The absolute path of the file.
    *
    * @return int The number of lines in the file.
    */
   public function getLength($filePath) {
-    // Count from -1 to omit the header.
-    $lines = -1;
-    $buffer = '';
-    $fp = fopen($filePath, 'rb');
-
-    while (!feof($fp)) {
-        $buffer = fread($fp, 8192);
-        $lines += substr_count($buffer, "\n");
-    }
-
-    fclose($fp);
-    // Include any last line without a newline termination.
-    if (strlen($buffer) > 0 && $buffer[-1] != "\n") {
-        ++$lines;
-    }
-    return $lines;
+    $reader = IOFactory::createReaderForFile($filePath,
+      [IOFactory::READER_CSV, IOFactory::READER_XLSX]
+    );
+    $spreadsheet = $reader->load($filePath);
+    $worksheet = $spreadsheet->getActiveSheet();
+    $lines = $worksheet->getHighestDataRow();
+    // Omit header from count
+    return $lines - 1;
   }
 
   /**
-   * Get the columns in a CSV file from the header row.
+   * Get the columns in a file from the header row.
    *
    * @param string $fileUri The URI of the file.
    *
@@ -69,14 +93,23 @@ class CsvHelper {
    */
   public function getColumns($fileUri) {
     $filePath = $this->getFilePath($fileUri);
-    $fp = fopen($filePath, 'r');
-    $columns = fgetcsv($fp);
-    fclose($fp);
-    return $columns;
+
+    // Limit to csv, xlsx.
+    $reader = IOFactory::createReaderForFile($filePath,
+      [IOFactory::READER_CSV, IOFactory::READER_XLSX]
+    );
+    // Filter to first row.
+    $reader->setReadFilter(new MyRowFilter(1, 1));
+    $spreadsheet = $reader->load($filePath);
+    $worksheet = $spreadsheet->getActiveSheet();
+    // Convert to 2D array
+    $array = $worksheet->toArray();
+    // Return first row.
+    return $array[0];
   }
 
   /**
-   * Send the contents of the CSV file to the record cleaner service.
+   * Send the contents of a file to the record cleaner service.
    *
    * Data from the source file, described in $settings['source']['mappings],
    * is submitted to the record cleaner service. The response is written to file
@@ -94,56 +127,97 @@ class CsvHelper {
 
     $recordChunk = [];
     $additionalChunk = [];
-    $errors = [];
-    $count = 1;
+    $messages = [];
+    $count = 0;
+    $success = TRUE;
+    $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
 
     try {
-      $fpIn = fopen($fileInPath, 'r');
       $fpOut = fopen($fileOutPath, 'w');
-      // Skip the first line of the input file.
-      fgetcsv($fpIn);
+      if ($fpOut === FALSE) {
+        $this->logger->error(
+          'Unable to open output file, %fileOutPath.',
+          ['%fileOutPath' => $fileOutPath]
+        );
+        throw new Exception("Unable to open output file, $fileOutPath.");
+      }
       // Write the header to the output file.
       $row = $this->getOutputFileHeader($settings);
       fputcsv($fpOut, $row);
 
+      $reader = IOFactory::createReaderForFile($fileInPath,
+        [IOFactory::READER_CSV, IOFactory::READER_XLSX]
+      );
+      // Skip empty rows.
+      $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
+      $worksheet = $spreadsheet->getActiveSheet();
+
       // Loop through rest of the input file line by line.
-      while (($row = fgetcsv($fpIn)) !== FALSE) {
+      foreach ($worksheet->getRowIterator() as $row) {
+        // Skip header row.
+        if ($row->getRowIndex() == 1) {
+          continue;
+        }
+        // Extract data from $row into array.
+        $rowArray = [];
+        foreach ($row->getCellIterator() as $cell) {
+          $rowArray[] = $cell->getValue();
+        }
+        // Skip validation failures during verification.
+        if ($this->isValidationFailure($rowArray, $settings)) {
+          continue;
+        }
+
+        // Keep count of lines processed.
+        $count++;
         // Format data for submission to API.
-        $recordChunk[] = $this->buildRecordSubmission($row, $count, $settings);
+        $recordChunk[] = $this->buildRecordSubmission($rowArray, $count, $settings);
         // Save additional data for output file.
-        list($id, $value) = $this->getAdditionalData($row, $count, $settings);
+        list($id, $value) = $this->getAdditionalData($rowArray, $count, $settings);
         $additionalChunk[$id] = $value;
         // Send to the service in chunks.
         if ($count % $chunk_size == 0) {
-          $errors += $this->submitChunk(
+          list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitChunk(
             $recordChunk, $additionalChunk, $settings, $fpOut
           );
+          // Accumulate results from chunks.
+          $success = $success && $chunkSuccess;
+          foreach ($chunkCounts as $key => $value) {
+            $counts[$key] += $value;
+          }
+          $messages += $chunkMessages;
+          // Reset chunk.
           $recordChunk = [];
           $additionalChunk = [];
-        }
-        else {
-          $count++;
         }
       }
       // Validate the last partial chunk.
       if ($count % $chunk_size != 0) {
-        $errors += $this->submitChunk(
+        list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitChunk(
           $recordChunk, $additionalChunk, $settings, $fpOut
         );
+        // Accumulate results from partial chunk.
+        $success = $success && $chunkSuccess;
+        foreach ($chunkCounts as $key => $value) {
+          $counts[$key] += $value;
+        }
+        $messages += $chunkMessages;
       }
     }
     catch (\Exception $e) {
-      $errors[] = $e->getMessage();
+      $messages[] = $e->getMessage();
     }
     finally {
-      fclose($fpIn);
       fclose($fpOut);
-      return $errors;
+      $counts['total'] = $count;
+      return [$success, $counts, $messages];
     }
   }
 
   public function submitChunk($recordChunk, $additionalChunk, $settings, $fpOut) {
-    $errors = [];
+    $messages = [];
+    $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
+    $success = TRUE;
 
     // Submit chunk to relevant service.
     if ($settings['action'] == 'validate') {
@@ -159,35 +233,38 @@ class CsvHelper {
       $records = json_decode($json, TRUE)['records'];
     }
 
-    // Loop through results accumulating errors and outputting to file.
+    // Loop through results accumulating messages and outputting to file.
     foreach ($records as $record) {
-      if ($record['ok'] == FALSE) {
-        $errors = array_merge($errors, $record['messages']);
+      if ($record['result'] == 'fail') {
+        $success = FALSE;
       }
+      $counts[$record['result']]++;
+      $messages = array_merge($messages, $record['messages']);
       $idValue = $record['id'];
       $additional = $additionalChunk[$idValue];
 
       $row = $this->getOutputFileRow($record, $additional, $settings);
       fputcsv($fpOut, $row);
     }
-    return $errors;
+    return [$success, $counts, $messages];
   }
 
   public function getAdditionalData($row, $count, $settings) {
     // Attach the same id to the additional data as the validation data
-    // so that they can be joined up again after calling the validation service.
+    // so that they can be joined up again after calling the service.
     $mappings = $settings['source']['mappings'];
-    $idField = $mappings['id_field'] ?? 'auto';
+    $idField = $mappings['id'] ?? 'auto';
     $idValue = $idField == 'auto' ? $count : $row[$idField];
 
     // Construct an array of the values to pass through, keyed by output column
     // number. Stage is passed through during validation as we need it for
-    // verification.
+    // verification. VC is passed trhough during verification.
     $data = [];
     foreach($settings['output']['columns'] as $colNum => $value) {
       if (
         $value['function'] == 'additional' ||
-        ($value['function'] == 'stage' && $settings['action'] == 'validate')
+        ($value['function'] == 'stage' && $settings['action'] == 'validate') ||
+        ($value['function'] == 'vc' && $settings['action'] == 'verify')
       ) {
         $data[$colNum] = $row[$value['column']];
       }
@@ -217,7 +294,6 @@ class CsvHelper {
       $function = $column['function'];
 
       switch ($function) {
-        case 'id_difficulty':
         case 'messages':
           // Combine array fields into a single string.
           $row[] = implode("\n", $record[$function]);
@@ -278,9 +354,16 @@ class CsvHelper {
           }
           break;
 
-        case 'ok':
-          $row[] = $record[$function] ? 'Y' : 'N';
-          break;
+          case 'vc':
+            if ($settings['action'] == 'validate') {
+              // During validation, vc is returned in the record.
+              $row[] = $record[$function];
+            }
+            else {
+              // During verification, vc is passed through in additional data.
+              $row[] = $additional[$colNum];
+            }
+            break;
 
         default:
           $row[] = $record[$function];
@@ -298,11 +381,11 @@ class CsvHelper {
 
     if ($settings['sref']['type'] == 'grid') {
       // Gridrefs are simple.
-      $sref['gridref'] = $row[$mappings['coord1_field']];
+      $sref['gridref'] = $row[$mappings['coord1']];
     }
     else {
       // Determine precision of coordinates.
-      $precisionField = $mappings['precision_field'] ?? 'manual';
+      $precisionField = $mappings['precision'] ?? 'manual';
       if ($precisionField == 'manual') {
         $accuracy = $settings['sref']['precision_value'];
       }
@@ -317,7 +400,7 @@ class CsvHelper {
         $separators = [ ',', ' '];
         $coord1 = $coord2 = NULL;
         foreach ($separators as $separator) {
-          $coords = explode($separator, $row[$mappings['coord1_field']]);
+          $coords = explode($separator, $row[$mappings['coord1']]);
           if (count($coords) == 2) {
             $coord1 = trim($coords[0]);
             $coord2 = trim($coords[1]);
@@ -326,8 +409,8 @@ class CsvHelper {
         }
       }
       else {
-        $coord1 = $row[$mappings['coord1_field']];
-        $coord2 = $row[$mappings['coord2_field']];
+        $coord1 = $row[$mappings['coord1']];
+        $coord2 = $row[$mappings['coord2']];
       }
 
       if ($settings['sref_type'] == 'en') {
@@ -356,33 +439,52 @@ class CsvHelper {
     $mappings = $settings['source']['mappings'];
 
     // Mandatory fields.
-    $idField = $mappings['id_field'] ?? 'auto';
+    $idField = $mappings['id'] ?? 'auto';
     $record = [
       'id' => $idField == 'auto' ? $count : $row[$idField] ,
-      'date' => $row[$mappings['date_field']],
+      'date' => $row[$mappings['date']],
       'sref' => $this->buildSrefSubmission($row, $settings),
     ];
 
-    if (array_key_exists('tvk_field', $mappings)) {
-      $record['tvk'] = $row[$mappings['tvk_field']];
+    if (array_key_exists('tvk', $mappings)) {
+      $record['tvk'] = $row[$mappings['tvk']];
     }
-    elseif (array_key_exists('name_field', $mappings)) {
-      $record['name'] = $row[$mappings['name_field']];
+    elseif (array_key_exists('name', $mappings)) {
+      $record['name'] = $row[$mappings['name']];
     }
 
     // Optional fields.
-    if(array_key_exists('vc_field', $mappings)) {
-      $record['vc'] = $row[$mappings['vc_field']];
+    if(array_key_exists('vc', $mappings)) {
+      $record['vc'] = $row[$mappings['vc']];
     }
 
     // Extra optional field for verification.
     if ($settings['action'] == 'verify') {
-      if(array_key_exists('stage_field', $mappings)) {
-        $record['stage'] = $row[$mappings['stage_field']];
+      if(array_key_exists('stage', $mappings)) {
+        $record['stage'] = $row[$mappings['stage']];
       }
     }
 
     return $record;
+  }
+
+  /**
+   * Determine if $row has failed validation.
+   */
+  public function isValidationFailure($row, $settings) {
+    if ($settings['action'] == 'validate') {
+      // Not yet validated so return early.
+      return FALSE;
+    }
+
+    // Find the index of the result field.
+    $resultField = $settings['source']['mappings']['result'];
+    if ($row[$resultField] == 'fail') {
+      return TRUE;
+    }
+    else {
+      return FALSE;
+    }
   }
 
 }

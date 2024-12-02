@@ -12,8 +12,15 @@ services:
       - '@config.factory'
       - '@http_client_factory'
 
-  record_cleaner.csv_helper:
-    class: Drupal\record_cleaner\Service\CsvHelper
+  record_cleaner.cookie_helper:
+    class: \Drupal\record_cleaner\Service\CookieHelper
+    arguments:
+      - '@request_stack'
+    tags:
+      - { name: 'event_subscriber' }
+
+  record_cleaner.file_helper:
+    class: Drupal\record_cleaner\Service\FileHelper
     arguments:
       - '@record_cleaner.logger_channel'
       - '@stream_wrapper_manager'

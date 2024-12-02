@@ -3,18 +3,20 @@
 namespace Drupal\record_cleaner\Form;
 
 use Drupal\Component\Utility\Html;
+use Drupal\Component\Utility\NestedArray;
 use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Entity\EntityTypeManager;
 use Drupal\Core\File\FileUrlGenerator;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
-use Drupal\Core\Render\Element;
+use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\Url;
 use Drupal\file\Entity\File;
-use Drupal\record_cleaner\Service\CsvHelper;
 use Drupal\record_cleaner\Service\ApiHelper;
+use Drupal\record_cleaner\Service\CookieHelper;
+use Drupal\record_cleaner\Service\FileHelper;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -39,8 +41,10 @@ class RecordCleanerUI extends FormBase {
    *
    * @param \Drupal\record_cleaner\Service\ApiHelper $apiHelper
    *   The record_cleaner API helper service.
-   * @param \Drupal\record_cleaner\Service\CsvHelper $csvHelper
-   *   The record_cleaner csv file service.
+   * @param \Drupal\record_cleaner\Service\CookieHelper $cookieHelper
+   *   The cookie helper service.
+   * @param \Drupal\record_cleaner\Service\FileHelper $fileHelper
+   *   The record_cleaner file service.
    * @param \Drupal\Core\Logger\LoggerChannelInterface $logger
    *   The logger service for logging messages.
    * @param \Drupal\Core\Session\AccountProxyInterface $currentUser
@@ -49,16 +53,20 @@ class RecordCleanerUI extends FormBase {
    *   The entity type manager service.
    * @param \Drupal\Core\File\FileUrlGenerator $fileUrlGenerator
    *   The file URL generator service.
+   * @param \Drupal\Core\Render\RendererInterface $renderer
+   *   The renderer service.
    *
    * @see https://php.watch/versions/8.0/constructor-property-promotion
    */
   public function __construct(
     protected ApiHelper $apiHelper,
-    protected CsvHelper $csvHelper,
+    protected CookieHelper $cookieHelper,
+    protected FileHelper $fileHelper,
     protected LoggerChannelInterface $logger,
     protected AccountProxyInterface $currentUser,
     protected EntityTypeManager $entityTypeManager,
     protected FileUrlGenerator $fileUrlGenerator,
+    protected RendererInterface $renderer,
   ) {
     $this->gridSystems = [
       '27700' => $this->t('British gridref (e.g.SM123456)'),
@@ -83,11 +91,13 @@ class RecordCleanerUI extends FormBase {
   public static function create(ContainerInterface $container) {
     return new static (
       $container->get('record_cleaner.api_helper'),
-      $container->get('record_cleaner.csv_helper'),
+      $container->get('record_cleaner.cookie_helper'),
+      $container->get('record_cleaner.file_helper'),
       $container->get('record_cleaner.logger_channel'),
       $container->get('current_user'),
       $container->get('entity_type.manager'),
       $container->get('file_url_generator'),
+      $container->get('renderer'),
     );
   }
 
@@ -140,15 +150,16 @@ class RecordCleanerUI extends FormBase {
     $form['file_upload'] = [
       '#type' => 'managed_file',
       '#title' => $this->t('Data File'),
-      '#description' => $this->t("Please select a CSV file containing your data.
-      The first row must be a header with the column names. The file must
-      contain at least a date, a location and a taxon name or taxon version key.
-      "),
+      '#description' => $this->t("Please select a CSV or Excel file containing
+      your data. The first row must be a header with the column names. The file
+      must contain at least a date, a location and a taxon name or taxon version
+      key."),
+      '#smart_description' => FALSE,
       '#required' => TRUE,
       '#default_value' =>  $form_state->getValue('file_upload'),
       '#upload_validators' => [
         'FileExtension' => [
-          'extensions' => 'csv',
+          'extensions' => 'csv xlsx',
         ],
         // Implement an EventSubscriber to add your custom validation code that
         // can add to the ConstraintViolationList.
@@ -158,6 +169,34 @@ class RecordCleanerUI extends FormBase {
       '#upload_location' => 'private://record-cleaner/' .
         $this->currentUser->id(),
     ];
+
+    if ($this->cookieHelper->hasCookie()) {
+      $form['storage'] = [
+        '#type' => 'container',
+        '#attributes' => [
+          'id' => 'record_cleaner_storage',
+        ],
+      ];
+
+      $form['storage']['info'] = [
+        '#type' => 'item',
+        '#title' => $this->t('Saved Settings'),
+        '#description' => $this->t("If you have changed file format, you should
+        delete saved settings."),
+        '#smart_description' => FALSE,
+      ];
+
+      $form['storage']['delete'] = [
+        '#type' => 'button',
+        '#value' => $this->t('Delete'),
+        '#limit_validation_errors' => array(),
+        '#ajax' => [
+          'callback' => '::deleteSettingsCallback',
+          'wrapper' => 'record_cleaner_storage',
+        ],
+      ];
+    }
+
     $form['actions'] = [
       '#type' => 'actions',
     ];
@@ -171,6 +210,13 @@ class RecordCleanerUI extends FormBase {
     ];
 
     return $form;
+  }
+
+  public function deleteSettingsCallback(array &$form, FormStateInterface $form_state) {
+    $this->cookieHelper->deleteCookie();
+    unset($form['storage']['info']);
+    unset($form['storage']['delete']);
+    return $form['storage'];
   }
 
   public function forwardFromUploadForm(array &$form, FormStateInterface $form_state) {
@@ -188,17 +234,26 @@ class RecordCleanerUI extends FormBase {
     ]);
 
     // Get a list of columns in the file.
-    $fileColumns = $this->csvHelper->getColumns($fileUri);
-    $form_state->set(['file_upload', 'columns'], $fileColumns);
+    try {
+      $fileColumns = $this->fileHelper->getColumns($fileUri);
+      $form_state->set(['file_upload', 'columns'], $fileColumns);
 
-    // Log the uploaded file.
-    $this->logger->notice(
-      $this->t("File uploaded: %file (fid=%fid)"),
-      ['%file' => $fileUri, '%fid' => $fid]
-    );
+      // Log the uploaded file.
+      $this->logger->notice(
+        $this->t("File uploaded: %file (fid=%fid)"),
+        ['%file' => $fileUri, '%fid' => $fid]
+      );
 
-    // Advance to the next step.
-    $this->moveForward($form_state);
+      // Advance to the next step.
+      $this->moveForward($form_state);
+    }
+    catch (\Exception $e) {
+      $this->logger->error(
+        $this->t("Error reading file: %file (fid=%fid): %error",
+          ['%file' => $fileUri, '%fid' => $fid, '%error' => $e->getMessage()])
+      );
+    }
+
   }
 
 /********************* FIELD MAPPING FORM *********************/
@@ -298,8 +353,7 @@ class RecordCleanerUI extends FormBase {
       '#type' => 'select',
       '#title' => $this->t("Life Stage"),
       '#description' => $this->t("If present, please select the field in the
-      source data which holds the life stage. This can be a valid name or
-      number."),
+      source data which holds the life stage."),
       '#empty_option' => $this->t('- Select -'),
       '#options' => $stageFieldOptions,
       '#default_value' => $form_state->getValue('stage_field'),
@@ -370,10 +424,10 @@ class RecordCleanerUI extends FormBase {
           break;
     }
 
-    // Each of the selectors which map columns in the CSV file to the
+    // Each of the selectors which map columns in the input file to the
     // required fields has its options recalculated every time the form is
     // built. The options are keyed by column number and the value is the
-    // column heading from the first row of the CSV file.
+    // column heading from the first row of the file.
     $fileColumns = $form_state->get(['file_upload', 'columns']);
     $unusedColumns = $this->getUnusedColumns($form_state);
 
@@ -518,10 +572,10 @@ class RecordCleanerUI extends FormBase {
         break;
     }
 
-    // Each of the selectors which map columns in the CSV file to the
+    // Each of the selectors which map columns in the input file to the
     // required fields has its options recalculated every time the form is
     // built. The options are keyed by column number and the value is the
-    // column heading from the first row of the CSV file.
+    // column heading from the first row of the file.
     $fileColumns = $form_state->get(['file_upload', 'columns']);
     $unusedColumns = $this->getUnusedColumns($form_state);
 
@@ -758,11 +812,12 @@ class RecordCleanerUI extends FormBase {
   public function buildAdditionalForm(array $form, FormStateInterface $form_state) {
     $unusedColumns = $this->getUnusedColumns($form_state);
     if (count($unusedColumns) == 0) {
-      $form = [
+      $form['no_additional_fields'] = [
         '#type' => 'item',
         '#title' => $this->t('Optional Fields'),
         '#description' => $this->t('There are no additional fields in the file
         for selection. Please proceed to the next step.'),
+        '#smart_description' => FALSE,
       ];
     }
     else {
@@ -774,7 +829,7 @@ class RecordCleanerUI extends FormBase {
         '#description' => $this->t('Please select any additional fields from the
         file that you would like included in the output dataset.'),
         '#options' => $unusedColumns,
-       '#default_value' => $form_state->getValue('additional_fields', []),
+        '#default_value' => $form_state->getValue('additional_fields', []),
       ];
     }
 
@@ -807,12 +862,26 @@ class RecordCleanerUI extends FormBase {
 
   public function forwardFromAdditionalForm(array &$form, FormStateInterface $form_state) {
     $this->saveAdditionalValues($form_state);
+
+    // Store mappings of function to column in upload file.
+    $uploadMappings = $this->getUploadMappings($form_state);
+    $form_state->set(['file_upload', 'mappings'], $uploadMappings);
+    // Determine columns in validation file.
+    $validateColumns = $this->getValidateColumns($form_state);
+    $form_state->set(['file_validate', 'columns'], $validateColumns);
+    // Store mappings of function to column in validation file.
+    $mappings = $this->getValidateMappings($validateColumns);
+    $form_state->set(['file_validate', 'mappings'], $mappings);
+    // Determine columns in verification file.
+    $verifyColumns = $this->getVerifyColumns($validateColumns);
+    $form_state->set(['file_verify', 'columns'], $verifyColumns);
+
     $this->moveForward($form_state);
   }
 
   public function saveAdditionalValues(FormStateInterface $form_state) {
     $form_state->set('additional_values', [
-      'additional_fields' => $form_state->getValue('additional_fields'),
+      'additional_fields' => $form_state->getValue('additional_fields', []),
     ]);
   }
 
@@ -820,12 +889,19 @@ class RecordCleanerUI extends FormBase {
   public function buildValidateForm(array $form, FormStateInterface $form_state) {
 
     // Check for a file entity to store validated results.
-    if (!$form_state->has('file_validate')) {
+    if (!$form_state->has(['file_validate', 'uri'])) {
       // Obtain the input file URI (private://record-cleaner{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
-      // Create an output file URI by appending _validate to the input URI.
-      // -4 means before the '.csv' characters.
-      $fileOutUri = substr_replace($fileInUri, '_validate', -4, 0);
+      // Create an output file URI by removing any extension and appending
+      // _validate.csv to the input URI.
+      $extPos = strrpos($fileInUri, '.', );
+      if ($extPos === false) {
+        // No extension.
+        $fileOutUri = $fileInUri . '_validate.csv';
+      }
+      else {
+        $fileOutUri = substr($fileInUri, 0, $extPos) . '_validate.csv';
+      }
       // Create a file entity for the output file.
       $fileOut = File::create([
         'uri' => $fileOutUri,
@@ -845,10 +921,8 @@ class RecordCleanerUI extends FormBase {
 
       // Save the output file information in the form_state storage as there
       // are no inputs to propagate it in form_state values.
-      $form_state->set('file_validate', [
-        'fid' => $fileOut->id(),
-        'uri' => $fileOutUri,
-      ]);
+      $form_state->set(['file_validate', 'fid'], $fileOut->id());
+      $form_state->set(['file_validate', 'uri'], $fileOutUri);
     }
 
     $form['settings'] = [
@@ -868,6 +942,30 @@ class RecordCleanerUI extends FormBase {
     // Attach CSS to format table.
     $form['settings']['#attached']['library'][] = 'record_cleaner/record_cleaner';
 
+    $form['storage'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'record_cleaner_storage',
+      ],
+    ];
+
+    $form['storage']['info'] = [
+      '#type' => 'item',
+      '#title' => $this->t('Save Settings'),
+      '#description' => $this->t("Save your selections to your computer so you
+       don't have to re-enter them."),
+       '#smart_description' => FALSE,
+    ];
+
+    $form['storage']['save'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Save'),
+      '#ajax' => [
+        'callback' => '::saveSettingsCallback',
+        'wrapper' => 'record_cleaner_storage',
+      ],
+    ];
+
     $form['validate'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -876,30 +974,26 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['validate']['output'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'pre',
-      '#value' => '',
+      '#type' => 'container',
     ];
 
     // Add a hidden input to control state of other items.
     // There is no change event for this input but it is taken in to account
     // when Ajax content is loaded and initial states are set.
     // It has a value of 0 which is changed to pass or fail after validation.
-    $form['validate']['result'] = [
+    $form['validate']['validate-result'] = [
       '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('result', '0'),
+      '#default_value' => $form_state->getValue('validate-result', '0'),
     ];
 
-    // Add a link to the validated file shown after validation.
-    $url = $this->fileUrlGenerator->generateAbsoluteString(
-      $form_state->get(['file_validate', 'uri'])
-    );
-    $form['validate']['link'] = [
-      '#type' => 'link',
-      '#title' => $this->t('Validated file'),
-      '#url' => Url::fromUri($url),
+    $form['validate']['continue'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Continue to verification'),
+      '#description' => $this->t('Proceed with verification, dropping invalid
+      records.'),
+      '#default_value' => 0,
       '#states' => ['visible' =>
-        ['input[name="result"]' => ['!value' => '0']],
+        ['input[name="validate-result"]' => ['value' => 'fail']]
       ],
     ];
 
@@ -916,9 +1010,12 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['validate']['actions']['validate'] = [
-      '#type' => 'submit',
+      '#type' => 'button',
       '#button_type' => 'primary',
       '#value' => $this->t('Validate'),
+      '#states' => ['disabled' =>
+        ['input[name="validate-result"]' => ['value' => 'pass']]
+      ],
       '#ajax' => [
         'callback' => '::validateCallback',
         'wrapper' => 'record_cleaner_validate',
@@ -933,40 +1030,51 @@ class RecordCleanerUI extends FormBase {
       '#type' => 'submit',
       '#button_type' => 'primary',
       '#value' => $this->t('Next'),
-      '#states' => ['enabled' =>
-        ['input[name="result"]' => ['value' => 'pass']]
+      '#states' => [
+        'enabled' => [
+          ['input[name="validate-result"]' => ['value' => 'pass']],
+          'or',
+          ['input[name="continue"]' => ['checked' => TRUE]]
+        ],
       ],
       '#submit' => ['::forwardFromValidateForm'],
+    ];
+
+    $form['validate']['actions']['restart'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Start again'),
+      '#submit' => ['::returnToStart'],
     ];
 
     return $form;
   }
 
   public function backFromValidateForm(array &$form, FormStateInterface $form_state) {
-    $this->saveValidateValues($form_state);
+    // Remove result going back.
+    NestedArray::unsetValue($form_state->getStorage(), ['validate_values']);
     $this->moveBack($form_state);
   }
 
   public function forwardFromValidateForm(array &$form, FormStateInterface $form_state) {
-    $this->saveValidateValues($form_state);
+    // Save result going forward.
+    $form_state->set('validate_values', [
+      'validate-result' => $form_state->getValue('validate-result'),
+    ]);
     $this->moveForward($form_state);
   }
 
-  public function saveValidateValues(FormStateInterface $form_state) {
-    $form_state->set('validate_values', [
-      'result' => $form_state->getValue('result'),
-    ]);
+  public function saveSettingsCallback(array &$form, FormStateInterface $form_state) {
+    $settings = [
+      'mapping' => $form_state->get('mapping_values'),
+      'organism' => $form_state->get('organism_values'),
+      'sref' => $form_state->get('sref_values'),
+      'additional' => $form_state->get('additional_values'),
+    ];
+    $this->cookieHelper->setCookie($settings);
+    return $form['storage'];
   }
 
   public function validateCallback(array &$form, FormStateInterface $form_state) {
-    // Store mappings of function to column in uploaded file.
-    // Note, this is not sticking in the form_state.
-    $mappings = $this->getUploadMappings($form_state);
-    $form_state->set(['file_upload', 'mappings'], $mappings);
-    // Determine columns in output file.
-    $columns = $this->getValidateColumns($form_state);
-    $form_state->set(['file_validate', 'columns'], $columns);
-
     return $this->submitCallback($form, $form_state, 'validate');
   }
 
@@ -974,12 +1082,19 @@ class RecordCleanerUI extends FormBase {
   public function buildVerifyForm(array $form, FormStateInterface $form_state) {
 
     // Check for a file entity to store verified results.
-    if (!$form_state->has('file_verify')) {
+    if (!$form_state->has(['file_verify', 'uri'])) {
       // Obtain the input file URI (private://record-cleaner/{userid}/{filename}).
       $fileInUri =  $form_state->get(['file_upload', 'uri']);
-      // Create an output file URI by appending _verify to the input URI.
-      // -4 means before the '.csv' characters.
-      $fileOutUri = substr_replace($fileInUri, '_verify', -4, 0);
+      // Create an output file URI by removing any extension and appending
+      // _verify.csv to the input URI.
+      $extPos = strrpos($fileInUri, '.', );
+      if ($extPos === false) {
+        // No extension.
+        $fileOutUri = $fileInUri . '_verify.csv';
+      }
+      else {
+        $fileOutUri = substr($fileInUri, 0, $extPos) . '_verify.csv';
+      }
       // Create a file entity for the output file.
       $fileOut = File::create([
         'uri' => $fileOutUri,
@@ -999,11 +1114,23 @@ class RecordCleanerUI extends FormBase {
 
       // Save the output file information in the form_state storage as there
       // are no inputs to propagate it in form_state values.
-      $form_state->set('file_verify', [
-        'fid' => $fileOut->id(),
-        'uri' => $fileOutUri,
-      ]);
+      $form_state->set(['file_verify', 'fid'], $fileOut->id());
+      $form_state->set(['file_verify', 'uri'], $fileOutUri);
     }
+
+    // All rules checkbox.
+    $allValue = $form_state->getValue('all', 1);
+    $form['all'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Use all rules'),
+      '#description' => $this->t('Uncheck to choose specific rules.'),
+      '#default_value' => $allValue,
+      '#ajax' => [
+        'callback' => '::changeAll',
+        'event' => 'change',
+        'wrapper' => 'organisations',
+      ]
+    ];
 
     // Container for all org group rules.
     // Tree ensures naming of elements is unique.
@@ -1013,6 +1140,7 @@ class RecordCleanerUI extends FormBase {
       '#description' => $this->t('Select the verification tests you want to run.'),
       '#description_display' => 'before',
       '#attributes' => [
+        'id' => 'organisations',
         'class' => ['record-cleaner-organisation-container'],
       ],
       '#tree' => TRUE,
@@ -1022,6 +1150,11 @@ class RecordCleanerUI extends FormBase {
 
     // Get the organisation-group-rules from the service.
     $orgGroupRules = $this->apiHelper->orgGroupRules();
+
+    // Hide organisation container if all rules is selected.
+    if ($allValue) {
+      $form['rules']['#attributes']['class'][] = 'hidden';
+    }
 
     // We build a hierarchy of checkboxes for organisation, groups and rules.
     // We use #ajax to deselect and children when the parent is unchecked.
@@ -1039,12 +1172,11 @@ class RecordCleanerUI extends FormBase {
         '#title' => $organisation,
         '#default_value' => $orgValue,
         '#ajax' => [
-          'callback' => '::uncheckChildren',
+          'callback' => '::changeSelection',
           'event' => 'change',
           'wrapper' => $groupContainerId,
         ]
       ];
-      $orgInput = "input[name=\"rules[$organisation]\"]";
 
       // Container for groups of organisation.
       $form['rules'][$groupContainer] = [
@@ -1069,24 +1201,18 @@ class RecordCleanerUI extends FormBase {
 
         // Group checkbox.
         $groupValue =  $form_state->getValue(
-          ['rules', "$organisation groups", $group]
+          ['rules', $groupContainer, $group]
         );
         $form['rules'][$groupContainer][$group] = [
           '#type' => 'checkbox',
           '#title' => $group,
           '#default_value' => $groupValue,
           '#ajax' => [
-            'callback' => '::uncheckChildren',
+            'callback' => '::changeSelection',
             'event' => 'change',
             'wrapper' => $ruleContainerId,
           ]
         ];
-        $groupInput = "input[name=\"rules[$groupContainer][$group]\"]";
-
-        // Deselect group if organisation is deselected.
-        if (!$orgValue) {
-          $form['rules'][$groupContainer][$group]['#value'] = 0;
-        }
 
         // Container for rules of group.
         $form['rules'][$groupContainer][$ruleContainer] = [
@@ -1108,14 +1234,9 @@ class RecordCleanerUI extends FormBase {
             '#type' => 'checkbox',
             '#title' => $rule,
             '#default_value' => $form_state->getValue(
-              ['rules', "$organisation groups", "$group rules", $rule]
+              ['rules', $groupContainer, $ruleContainer, $rule]
             ),
           ];
-
-          // Deselect rules if group or organisation is deselected.
-          if (!$orgValue ||!$groupValue) {
-            $form['rules'][$groupContainer][$ruleContainer][$rule]['#value'] = 0;
-          }
         }
       }
     }
@@ -1128,31 +1249,16 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['verify']['output'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'pre',
-      '#value' => '',
+      '#type' => 'container',
     ];
 
     // Add a hidden input to control state of other items.
     // There is no change event for this input but it is taken in to account
     // when Ajax content is loaded and initial states are set.
     // It has a value of 0 which is changed to pass or fail after verification.
-    $form['verify']['result'] = [
+    $form['verify']['verify-result'] = [
       '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('result', '0'),
-    ];
-
-    // Add a link to the verified file.
-    $url = $this->fileUrlGenerator->generateAbsoluteString(
-      $form_state->get(['file_verify', 'uri'])
-    );
-    $form['verify']['link'] = [
-      '#type' => 'link',
-      '#title' => $this->t('Verified file'),
-      '#url' => Url::fromUri($url),
-      '#states' => ['visible' =>
-        ['input[name="result"]' => ['!value' => '0']],
-      ],
+      '#default_value' => $form_state->getValue('verify-result', '0'),
     ];
 
     $form['actions'] = [
@@ -1166,7 +1272,7 @@ class RecordCleanerUI extends FormBase {
     ];
 
     $form['actions']['verify'] = [
-      '#type' => 'submit',
+      '#type' => 'button',
       '#button_type' => 'primary',
       '#value' => $this->t('Verify'),
       '#ajax' => [
@@ -1179,46 +1285,79 @@ class RecordCleanerUI extends FormBase {
       ],
     ];
 
+    $form['actions']['restart'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Start again'),
+      '#submit' => ['::returnToStart'],
+    ];
+
     return $form;
   }
 
-  public function uncheckChildren(array &$form, FormStateInterface $form_state) {
+  public function changeAll(array &$form, FormStateInterface $form_state) {
+    return $form['rules'];
+  }
+
+  public function changeSelection(array &$form, FormStateInterface $form_state) {
     $triggeredElement = $form_state->getTriggeringElement();
-    // Locate the container of the child elements.
     $parents = $triggeredElement['#array_parents'];
+    $selection = $form_state->getValue($parents);
+    $values = $form_state->getValues();
+
     if (count($parents) == 2) {
-      $container = $form[$parents[0]][$parents[1] . ' groups'];
+      // Organisation in ['rules'][$organisation] changed.
+      $organisation = $parents[1];
+      $groupContainer = "$organisation groups";
+      $container = $form['rules'][$groupContainer];
+
+      // Check or clear all the descendant checkboxes.
+      $groupItems = $values['rules'][$groupContainer];
+      foreach($groupItems as $item => $value) {
+        if (is_int($value)) {
+          // Found a group checkbox
+          $container[$item]['#checked'] = $selection;
+        }
+        else {
+          // Found a rule container.
+          foreach(array_keys($value) as $rule) {
+            $container[$item][$rule]['#checked'] = $selection;
+          }
+          // Make it visible.
+          foreach($container[$item]['#attributes']['class'] as $idx => $class) {
+            if ($class == 'hidden') {
+              unset($container[$item]['#attributes']['class'][$idx]);
+            }
+          }
+        }
+      }
     }
     elseif (count($parents) == 3) {
-      $container = $form[$parents[0]][$parents[1]][$parents[2] . ' rules'];
+      // Group in ['rules'][$groupContainer][$group] changed.
+      $groupContainer = $parents[1];
+      $group = $parents[2];
+      $ruleContainer = "$group rules";
+      $container = $form['rules'][$groupContainer][$ruleContainer];
+
+      // Check or clear all the descendant checkboxes.
+      $rules = $values['rules'][$groupContainer][$ruleContainer];
+      foreach(array_keys($rules) as $rule) {
+        $container[$rule]['#checked'] = $selection;
+      }
     }
 
     return $container;
   }
 
   public function backFromVerifyForm(array &$form, FormStateInterface $form_state) {
-    $this->saveVerifyValues($form_state);
+    // verify-result intentionally not saved when going back.
+    $form_state->set('verify_values', [
+      'rules' => $form_state->getValue('rules'),
+      'all' => $form_state->getValue('all'),
+    ]);
     $this->moveBack($form_state);
   }
 
-  public function saveVerifyValues(FormStateInterface $form_state) {
-    $form_state->set('verify_values', [
-      'rules' => $form_state->getValue('rules'),
-      'result' => $form_state->getValue('result'),
-    ]);
-  }
-
   public function verifyCallback(array &$form, FormStateInterface $form_state) {
-    // Store mappings of function to column in validated file.
-    // Note, I wasn't expecting to have to do calculate columns again but it is
-    // not sticking in the form_state when calculated for validation.
-    $validateColumns = $this->getValidateColumns($form_state);
-    $mappings = $this->getValidateMappings($validateColumns);
-    $form_state->set(['file_validate', 'mappings'], $mappings);
-    // Determine columns in output file.
-    $columns = $this->getVerifyColumns($validateColumns);
-    $form_state->set(['file_verify', 'columns'], $columns);
-
     return $this->submitCallback($form, $form_state, 'verify');
   }
 
@@ -1244,7 +1383,7 @@ class RecordCleanerUI extends FormBase {
       $output = 'file_verify';
     }
 
-    // Bundle all settings needed for submitting to service..
+    // Bundle all settings needed for submitting to service.
     $settings['action'] = $action;
     $settings['source'] = $form_state->get($source);
     $settings['output'] = $form_state->get($output);
@@ -1267,28 +1406,52 @@ class RecordCleanerUI extends FormBase {
     $settings['sref']['srid'] = $srid;
 
     if ($action == 'verify') {
-      $settings['org_group_rules'] = $this->getOrgGroupRules($form);
+      $settings['org_group_rules'] = $this->getOrgGroupRules($form_state);
     }
 
-    // Send to the csv helper service.
-    $errors = $this->csvHelper->submit($settings);
+    // Send to the file helper service.
+    list($success, $counts, $messages) = $this->fileHelper->submit($settings);
 
-    // Output results.
-    if (count($errors) == 0) {
-      $output = "$action successful.";
-      $result = 'pass';
-    }
-    else {
-      $output = print_r($errors, TRUE);
-      $result = 'fail';
-    }
+    // Display results.
+    $result = $success ? 'pass' : 'fail';
 
-    $form_state->setValue('result', $result);
+    $form[$action]['output']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h3',
+      '#value' => ucfirst($action) . ' ' .  ucfirst($result) . 'ed',
+    ];
+    $form[$action]['output']['count'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => "{$counts['total']} records were checked. <br/>" .
+        "{$counts['pass']} records passed. <br/>" .
+        "{$counts['warn']} records had warnings. <br/>" .
+        "{$counts['fail']} records failed.",
+      ];
+    $form[$action]['output']['messages'] = $this->getMessageSummary($messages);
 
-    $form[$action]['output']['#value'] = $output;
-    $form[$action]['result']['#value'] = $result;
+    // Display a link to the output file.
+    $url = $this->fileUrlGenerator->generateAbsoluteString(
+      $form_state->get([$output, 'uri'])
+    );
+    $link = [
+      '#type' => 'link',
+      '#title' => $this->t("$action file"),
+      '#url' => Url::fromUri($url),
+    ];
+    $link =$this->renderer->render($link);
+    $form[$action]['output']['link'] = [
+      '#type' => 'markup',
+      '#markup' => '<p>' . $this->t('Please download the ') . $link .
+        $this->t(' for more information. If you have errors, edit your data
+        and re-upload to complete the checking process.' . '</p>'),
+    ];
+
+    // Add the results to the form which has been built already.
+    $form_state->setValue("$action-result", $result);
+    $form[$action]["$action-result"]['#value'] = $result;
+
     return $form[$action];
-
   }
 
   public function moveForward(FormStateInterface $form_state) {
@@ -1299,6 +1462,20 @@ class RecordCleanerUI extends FormBase {
     $this->move($form_state, -1);
   }
 
+  public function returnToStart(array &$form, FormStateInterface $form_state) {
+    // Reset initial file and results.
+    $storage = $form_state->getStorage();
+    unset($storage['upload_values']);
+    unset($storage['file_upload']);
+    unset($storage['file_validate']);
+    unset($storage['file_verify']);
+    unset($storage['validate_values']);
+    $form_state->setStorage($storage);
+
+   // Reset to step 0 by negating the current step.
+    $this->move($form_state, -$form_state->get('step_num'));
+  }
+
   public function move(FormStateInterface $form_state, int $increment) {
     $stepNum = $form_state->get('step_num') + $increment;
     $step = $this->steps[$stepNum];
@@ -1306,6 +1483,13 @@ class RecordCleanerUI extends FormBase {
     // Restore form values previously set.
     if ($form_state->has("{$step}_values")) {
       $form_state->setValues($form_state->get("{$step}_values"));
+    }
+    else {
+      $settings = $this->cookieHelper->getCookie();
+      // Or stored in a cookie from a previous occasion
+      if (isset($settings) && isset($settings[$step])) {
+        $form_state->setValues($settings[$step]);
+      }
     }
 
     // Change step.
@@ -1522,9 +1706,11 @@ class RecordCleanerUI extends FormBase {
     $title = $this->t("Additional Fields");
     $colNums = $form_state->get(['additional_values', 'additional_fields']);
     $values = [];
-    foreach($colNums as $colNum) {
-      if (is_numeric($colNum) && is_string($colNum)) {
-        $values[] = $fileColumns[$colNum];
+    if (isset($colNums)) {
+      foreach($colNums as $colNum) {
+        if (is_numeric($colNum) && is_string($colNum)) {
+          $values[] = $fileColumns[$colNum];
+        }
       }
     }
     $value = implode(", ", $values);
@@ -1532,6 +1718,54 @@ class RecordCleanerUI extends FormBase {
       $summary[] = [$title, $value];
     }
 
+    return $summary;
+  }
+
+  public function getMessageSummary($messages) {
+    $nrMessages = count($messages);
+    // Return nothing if there were no messages.
+    if ($nrMessages == 0) {
+      return [];
+    }
+
+    // Accumulate count of each type of message.
+    $counts = [];
+    foreach($messages as $message) {
+      if (substr($message, 0, 10) == 'Rules run:') {
+        // Don't count success messages.
+        continue;
+      }
+      if (array_key_exists($message, $counts)) {
+        $counts[$message] += 1;
+      }
+      else {
+        $counts[$message] = 1;
+      }
+    }
+
+    // Sort the counts by message.
+    ksort($counts);
+
+    // Generate a table of counts.
+    $rows = [];
+    foreach($counts as $message => $count) {
+      // Omit difficulty details.
+      // Difficulty messages have the form:
+      // {organisation}:{group}:difficulty:{id_difficulty}:{details}
+      $pos = strpos($message, ':difficulty:');
+      if ($pos !== FALSE) {
+        $length = $pos + strlen(':difficulty:n');
+        $message = substr($message, 0, $length);
+      }
+      $rows[] = [$message, $count];
+    }
+
+    $summary = [
+      '#type' => 'table',
+      '#header' => [$this->t('Message'), $this->t('Count')],
+      '#rows' => $rows,
+      '#caption' => $this->t('Message Summary'),
+    ];
     return $summary;
   }
 
@@ -1550,46 +1784,15 @@ class RecordCleanerUI extends FormBase {
    */
   public function getValidateColumns(FormStateInterface $form_state) {
     $mappings = [];
-    $fields = [
-      'id' => 'mapping_values',
-      'date' => 'mapping_values',
-      'vc' => 'mapping_values',
-      'stage' => 'mapping_values',
-      'organism' => 'organism_values',
-      'coord1' =>'sref_values',
-      'coord2' => 'sref_values',
-      'precision' => 'sref_values',
-    ];
-
+    $uploadMappings = $form_state->get(['file_upload', 'mappings']);
     $organismType = $form_state->get(['organism_values', 'organism_type']);
 
-    // Create a mappings array where the key is the column number in the source
-    // file and the value is an array of the column name and its function.
-    foreach($fields as $field => $store) {
-      $colNum = $form_state->get([$store, "{$field}_field"]);
-      // A select value of '0' is valid but '' indicates not set.
-      // An id of 'auto' or a precision of 'manual' means there is no mapping
-      // for those fields.
-      if (is_numeric($colNum)) {
-        // Organism is a special case. We want to be able to pick out the tvk
-        // column when it comes round to verification, whether it came from the
-        // original file or the validation service.
-        if ($field == 'organism' && $organismType == 'tvk') {
-          $function = 'tvk';
-        }
-        elseif ($field == 'organism' && $organismType == 'name') {
-          $function = 'name';
-        }
-        else {
-          $function = $field;
-        }
-
-        $mappings[$colNum] = [
-          'name' => $form_state->get(['file_upload', 'columns', $colNum]),
-          'function' => $function,
-        ];
-      }
-    }
+    foreach($uploadMappings as $function => $colNum) {
+      $mappings[$colNum] = [
+        'name' => $form_state->get(['file_upload', 'columns', $colNum]),
+        'function' => $function,
+      ];
+   }
 
     // Add mappings for additional fields.
     foreach($form_state->get(['additional_values', 'additional_fields']) as $colNum) {
@@ -1614,7 +1817,7 @@ class RecordCleanerUI extends FormBase {
       $columns[] = [
         'name' => 'Id',
         'function' => 'id',
-        'column' => NULL,
+        'column' => 0,
       ];
     }
 
@@ -1639,15 +1842,21 @@ class RecordCleanerUI extends FormBase {
       ];
     }
 
-    $columns[] = [
-      'name' => 'Id Difficulty',
-      'function' => 'id_difficulty',
-      'column' => NULL,
-    ];
+    // If a vice county is supplied, it is checked.
+    // When it is not supplied, return the primary VC for the grid square.
+    if (!array_key_exists('vc', $uploadMappings)) {
+      // Set the column index as we will need it to pass through the value to
+      // the verification file.
+      $columns[] = [
+        'name' => 'VC Estimate',
+        'function' => 'vc',
+        'column' => count($columns),
+      ];
+    }
 
     $columns[] = [
-      'name' => 'Pass',
-      'function' => 'ok',
+      'name' => 'Result',
+      'function' => 'result',
       'column' => NULL,
     ];
 
@@ -1676,41 +1885,50 @@ class RecordCleanerUI extends FormBase {
    *
    */
   public function getVerifyColumns(array $validateColumns) {
-    $columns = [];
-    foreach($validateColumns as $colNum => $column) {
-      // Omit ID difficulty from verification file.
-      if ($column['function'] == 'id_difficulty') {
-        continue;
-      }
-      $column['column'] = $colNum;
-      $columns[] = $column;
-    }
+    $columns = $validateColumns;
+
+    // Insert Id difficulty before result and messages.
+    $messages = array_pop($columns);
+    $result = array_pop($columns);
+
+    $columns[] = [
+      'name' => 'Id Difficulty',
+      'function' => 'id_difficulty',
+      'column' => NULL,
+    ];
+
+    array_push($columns,$result);
+    array_push($columns,$messages);
 
     return $columns;
   }
 
   /**
-   * Create mapping from field to column number in validate file.
+   * Create mapping from function to column number in validate file.
    *
    * This is needed to pick the correct data from the validated file to insert
    * in to the submission to the verification service.
+   *
+   * @param array $columns  The columns in the validate file.
+   *
+   * @return array An array of column numbers keyed by function.
    */
   public function getValidateMappings($columns) {
     $mappings = [];
     $functions = [
-      'id', 'date', 'tvk', 'vc', 'stage', 'coord1', 'coord2', 'precision'
+      'id', 'date', 'tvk', 'vc', 'stage', 'coord1', 'coord2', 'precision', 'result'
     ];
     foreach($columns as $colNum => $column) {
       $colFunction = $column['function'];
       if (in_array($colFunction, $functions)) {
-        $mappings[$colFunction . '_field'] = $colNum;
+        $mappings[$colFunction] = $colNum;
       }
     }
     return $mappings;
   }
 
   /**
-   * Create mapping from field to column number in uploaded file.
+   * Create mapping from function to column number in uploaded file.
    *
    * This is needed to pick the correct data from the uploaded file to insert
    * in to the submission to the validation service.
@@ -1718,63 +1936,66 @@ class RecordCleanerUI extends FormBase {
   public function getUploadMappings(FormStateInterface $form_state) {
     $mappings = [];
     $fields = [
-      'id_field' => 'mapping_values',
-      'date_field' => 'mapping_values',
-      'vc_field' => 'mapping_values',
-      'stage_field' => 'mapping_values',
-      'organism_field' => 'organism_values',
-      'coord1_field' =>'sref_values',
-      'coord2_field' => 'sref_values',
-      'precision_field' => 'sref_values',
+      'id' => 'mapping_values',
+      'date' => 'mapping_values',
+      'vc' => 'mapping_values',
+      'stage' => 'mapping_values',
+      'organism' => 'organism_values',
+      'coord1' =>'sref_values',
+      'coord2' => 'sref_values',
+      'precision' => 'sref_values',
     ];
 
     $organismType = $form_state->get(['organism_values', 'organism_type']);
 
     // Create a mappings array where the key is the function and the value is
     // the column number in the source file
-    foreach($fields as $field => $store) {
-      $colNum = $form_state->get([$store, "$field"]);
+    foreach($fields as $function => $store) {
+      $colNum = $form_state->get([$store, "{$function}_field"]);
       // A select value of '0' is valid but '' indicates not set.
       // An id of 'auto' or a precision of 'manual' means there is no mapping
       // for those fields.
       if (is_numeric($colNum)) {
         // Organism is a special case where we rename fields.
         // Sorry this seems to have got quite convoluted.
-        if ($field == 'organism_field' && $organismType == 'tvk') {
-          $field = 'tvk_field';
+        if ($function == 'organism' && $organismType == 'tvk') {
+          $function = 'tvk';
         }
-        elseif ($field == 'organism_field' && $organismType == 'name') {
-          $field = 'name_field';
+        elseif ($function == 'organism' && $organismType == 'name') {
+          $function = 'name';
         }
 
-        $mappings[$field] = $colNum;
+        $mappings[$function] = $colNum;
       }
     }
     return $mappings;
   }
 
-  public function getOrgGroupRules(array &$form) {
+  public function getOrgGroupRules(FormStateInterface $form_state) {
     // Construct org_group_rules_list required by API.
+
+    if ($form_state->getValue('all') == 1) {
+      // Early return if 'all' is checked.
+      return [];
+    }
+
     $orgGroupRules = [];
-    $orgContainer = $form['rules'];
-    foreach(Element::children($orgContainer) as $orgElementKey) {
-      $orgElement = $orgContainer[$orgElementKey];
-      if ($orgElement['#type'] == 'checkbox' && $orgElement['#value'] == 1) {
-        $organisation = $orgElementKey;
-
-        $groupContainer = $form['rules']["$organisation groups"];
-        foreach(Element::children($groupContainer) as $groupElementKey) {
-          $groupElement = $groupContainer[$groupElementKey];
-          if ($groupElement['#type'] == 'checkbox' && $groupElement['#value'] == 1) {
-            $group = $groupElementKey;
-
-            $ruleContainer = $groupContainer["$group rules"];
+    $checkboxes = $form_state->getValue('rules');
+    // Build array of selected org group rules.
+    foreach($checkboxes as $organisation => $value) {
+      // Seek checked organisations.
+      if ($value == 1) {
+        $groupContainer = "$organisation groups";
+        foreach($checkboxes[$groupContainer] as $group => $value) {
+          // Seek checked groups.
+          if ($value == 1) {
+            $ruleContainer = "$group rules";
             $rules = [];
-            foreach(Element::children($ruleContainer) as $ruleElementKey) {
-              $ruleElement = $ruleContainer[$ruleElementKey];
-              if ($ruleElement['#type'] == 'checkbox' && $ruleElement['#value'] == 1) {
+            foreach($checkboxes[$groupContainer][$ruleContainer] as $item => $value) {
+              // Seek checked rules.
+              if ($value == 1) {
                 // Convert '{Ruletype} Rule' to {ruletype}
-                $rule = strtolower(explode(' ', $ruleElementKey)[0]);
+                $rule = strtolower(explode(' ', $item)[0]);
                 $rules[] = $rule;
               }
             }
@@ -1794,23 +2015,9 @@ class RecordCleanerUI extends FormBase {
     return $orgGroupRules;
   }
 
-  /**
-   * {@inheritdoc}
+  /** {@inheritdoc}
    *
-   * Receives a file object ID in $form_state['values'] that represents the ID
-   * of the new file in the {file_managed} table
+   * Implemented as required by FormBase but unused.
    */
-  public function validateForm(array &$form, FormStateInterface $form_state) {
-    //parent::validateForm($form, $form_state);
-  }
-
-  /**
-   * {@inheritdoc}
-   *
-   * Receives a file object ID in $form_state['values'] that represents the ID
-   * of the new file in the {file_managed} table
-   */
-  public function submitForm(array &$form, FormStateInterface $form_state) {
-    // Submissions are handled by the submitHandlerHelper service.
-  }
+  public function submitForm(array &$form, FormStateInterface $form_state) {}
 }
