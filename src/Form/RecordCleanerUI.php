@@ -154,6 +154,7 @@ class RecordCleanerUI extends FormBase {
       your data. The first row must be a header with the column names. The file
       must contain at least a date, a location and a taxon name or taxon version
       key."),
+      '#smart_description' => FALSE,
       '#required' => TRUE,
       '#default_value' =>  $form_state->getValue('file_upload'),
       '#upload_validators' => [
