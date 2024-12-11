@@ -13,6 +13,8 @@ record_cleaner.status:
     _title: 'Record Cleaner Status'
   requirements:
     _permission: 'use record cleaner'
+  options:
+    no_cache: 'TRUE'
 
 record_cleaner.ui:
   path: '/record_cleaner/ui'
@@ -21,6 +23,8 @@ record_cleaner.ui:
     _title: 'Record Cleaner'
   requirements:
     _permission: 'use record cleaner'
+  options:
+    no_cache: 'TRUE'
 
 record_cleaner.config:
   path: '/admin/config/services/record_cleaner'
