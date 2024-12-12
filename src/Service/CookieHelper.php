@@ -25,6 +25,13 @@ class CookieHelper implements EventSubscriberInterface {
 
   protected $delete;
 
+  // Pantheon hosting requires a session-style cookie to break through cache.
+  // See https://docs.pantheon.io/caching-advanced-topics#using-your-own-session-style-cookies
+  protected $name = 'SESSrecordcleanerui';
+
+  // Path for which the cookie is valid.
+  protected $path = '/record_cleaner/ui';
+
   /**
    * Constructor.
    *
@@ -76,7 +83,7 @@ class CookieHelper implements EventSubscriberInterface {
       return $this->value;
     }
     else {
-      $value = $this->request->cookies->get('record-cleaner');
+      $value = $this->request->cookies->get($this->name);
       if (isset($value)) {
         return json_decode($value, TRUE);
       }
@@ -96,8 +103,7 @@ class CookieHelper implements EventSubscriberInterface {
    * @return bool
    */
   public function hasCookie() {
-    $value = $this->request->cookies->get('record-cleaner');
-    return isset($value);
+    return $this->request->cookies->has($this->name);
   }
 
   /**
@@ -112,11 +118,11 @@ class CookieHelper implements EventSubscriberInterface {
     if (isset($this->value)) {
       $expire = time() + 60 * 60 * 24 * 365;
       $value = json_encode($this->value);
-      $cookie = new Cookie('record-cleaner', $value, $expire);
+      $cookie = new Cookie($this->name, $value, $expire, $this->path);
       $response->headers->setCookie($cookie);
     }
     elseif (isset($this->delete)) {
-      $response->headers->clearCookie('record-cleaner');
+      $response->headers->clearCookie($this->name, $this->path);
     }
   }
 }

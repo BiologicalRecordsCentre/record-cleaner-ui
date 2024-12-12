@@ -1463,16 +1463,10 @@ class RecordCleanerUI extends FormBase {
   }
 
   public function returnToStart(array &$form, FormStateInterface $form_state) {
-    // Reset initial file and results.
-    $storage = $form_state->getStorage();
-    unset($storage['upload_values']);
-    unset($storage['file_upload']);
-    unset($storage['file_validate']);
-    unset($storage['file_verify']);
-    unset($storage['validate_values']);
-    $form_state->setStorage($storage);
+    // Clear form values. Cookie will provide, if one exists.
+    $form_state->setStorage([]);
 
-   // Reset to step 0 by negating the current step.
+   // Return to step 0 with an increment of minus current step.
     $this->move($form_state, -$form_state->get('step_num'));
   }
 
