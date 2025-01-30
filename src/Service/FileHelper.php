@@ -161,7 +161,7 @@ class FileHelper {
         // Extract data from $row into array.
         $rowArray = [];
         foreach ($row->getCellIterator() as $cell) {
-          $rowArray[] = $cell->getValue();
+          $rowArray[] = $cell->getFormattedValue();
         }
         // Skip validation failures during verification.
         if ($this->isValidationFailure($rowArray, $settings)) {
