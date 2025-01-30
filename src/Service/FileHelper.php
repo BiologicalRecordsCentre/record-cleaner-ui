@@ -185,7 +185,7 @@ class FileHelper {
           foreach ($chunkCounts as $key => $value) {
             $counts[$key] += $value;
           }
-          $messages += $chunkMessages;
+          $messages = array_merge($messages, $chunkMessages);
           // Reset chunk.
           $recordChunk = [];
           $additionalChunk = [];
@@ -201,7 +201,7 @@ class FileHelper {
         foreach ($chunkCounts as $key => $value) {
           $counts[$key] += $value;
         }
-        $messages += $chunkMessages;
+        $messages = array_merge($messages, $chunkMessages);
       }
     }
     catch (\Exception $e) {
