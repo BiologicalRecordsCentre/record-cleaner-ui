@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Status information being cached
 - Field values not clearing when starting again
+- Broken link in overview page
 
 ### Removed
 
