@@ -10,8 +10,10 @@ namespace Drupal\record_cleaner\Service;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManager;
 use Drupal\record_cleaner\Service\ApiHelper;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
+use PhpOffice\PhpSpreadsheet\Worksheet\CellIterator;
 use Exception;
 use PhpOffice\PhpSpreadsheet\Reader\IReader;
 
@@ -30,7 +32,7 @@ class MyRowFilter implements IReadFilter {
    * @param int $endRow
    *   The last row to read. If 0, read to end.
    */
-  public function __construct($startRow = 1, $endRow = 0) {
+  public function __construct(int $startRow = 1, int $endRow = 0) {
     $this->startRow = $startRow;
     $this->endRow = $endRow;
   }
@@ -45,6 +47,39 @@ class MyRowFilter implements IReadFilter {
     return FALSE;
   }
 }
+
+/**
+ * Filter to load a range of columns.
+ */
+class MyColFilter implements IReadFilter {
+  private $startCol;
+  private $endCol;
+
+  /**
+   * Constructor for column filter.
+   *
+   * @param int $startCol
+   *   The first column to read.
+   * @param int $endCol
+   *   The last column to read. If 0, read to end.
+   */
+  public function __construct(int $startCol = 1, int $endCol = 0) {
+    $this->startCol = $startCol;
+    $this->endCol = $endCol;
+  }
+
+  public function readCell(string $col, int $row, string $sheet = ''): bool {
+    $col = Coordinate::columnIndexFromString($col);
+    if ($col >= $this->startCol) {
+      if ($this->endCol > 0 && $col > $this->endCol) {
+        return FALSE;
+      }
+      return TRUE;
+    }
+    return FALSE;
+  }
+}
+
 
 class FileHelper {
   public function __construct(
@@ -148,6 +183,12 @@ class FileHelper {
       $reader = IOFactory::createReaderForFile($fileInPath,
         [IOFactory::READER_CSV, IOFactory::READER_XLSX]
       );
+
+      // Filter to read no more columns than we need.
+      $maxCol = count($settings['source']['columns']);
+      // Spreadsheets are 1-indexed.
+      $reader->setReadFilter(new MyColFilter(1, $maxCol));
+
       // Skip empty rows.
       $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
       $worksheet = $spreadsheet->getActiveSheet();
@@ -156,6 +197,13 @@ class FileHelper {
       foreach ($worksheet->getRowIterator() as $row) {
         // Skip header row.
         if ($row->getRowIndex() == 1) {
+          continue;
+        }
+        // Skip rows with cells but no data.
+        if ($row->isEmpty(
+          CellIterator::TREAT_EMPTY_STRING_AS_EMPTY_CELL |
+          CellIterator::TREAT_NULL_VALUE_AS_EMPTY_CELL)
+          ) {
           continue;
         }
         // Extract data from $row into array.
