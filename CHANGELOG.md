@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+- Status information being cached
+- Field values not clearing when starting again
+
+### Removed
+
+## [1.1.0]
+
+### Added
+
 - This CHANGELOG file.
 - Upload of Excel files, #9
 - VC accignment to output, #6
@@ -30,8 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Always auto-numbering record id for additional data.
 - Verification file link showing before verification, #4
 - On-screen summary of additional columns
-
-### Removed
 
 ## [1.0.0]
 
