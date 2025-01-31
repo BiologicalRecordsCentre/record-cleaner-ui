@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Message when service is down, [#17](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/17)
+
 ### Changed
 
 - Improved efficiency of processing spreadsheets
@@ -29,25 +31,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - This CHANGELOG file.
-- Upload of Excel files, #9
-- VC accignment to output, #6
-- Start Again buttons, #5
-- Save/Delete settings button and cookie, #3
+- Upload of Excel files, [#9](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/9)
+- VC accignment to output, [#6](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/6)
+- Start Again buttons, [#5](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/5)
+- Save/Delete settings button and cookie, [#3](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/3)
 
 ### Changed
 
 - Updated to support changes in service API.
-- ID difficulty moved to verification output, #12
-- Allow verification after validation by dropping failed records, #11
-- On screen results display improved, #10
-- Empty records skipped, #8
-- Rule selection to include 'select all', #7
-- Rule selection to apply to all sub-selectors, #7
+- ID difficulty moved to verification output, [#12](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/12)
+- Allow verification after validation by dropping failed records, [#11](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/11)
+- On screen results display improved, [#10](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/10)
+- Empty records skipped, [#8](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/8)
+- Rule selection to include 'select all', [#7](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/7)
+- Rule selection to apply to all sub-selectors, [#7](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/7)
 - Results invalidated on going back to previous steps
 
 ### Fixed
 - Always auto-numbering record id for additional data.
-- Verification file link showing before verification, #4
+- Verification file link showing before verification, [#4](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/4)
 - On-screen summary of additional columns
 
 ## [1.0.0]

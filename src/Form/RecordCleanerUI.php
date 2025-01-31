@@ -121,7 +121,9 @@ class RecordCleanerUI extends FormBase {
 
     switch ($step) {
       case 'upload':
-        return $this->buildUploadForm($form, $form_state);
+        if ($this->serviceUp()) {
+          return $this->buildUploadForm($form, $form_state);
+        }
         break;
       case 'mapping':
         return $this->buildMappingForm($form, $form_state);
@@ -1373,7 +1375,13 @@ class RecordCleanerUI extends FormBase {
   }
 
   public function submitCallback(
-    array &$form, FormStateInterface $form_state, $action) {
+    array &$form, FormStateInterface $form_state, $action
+  ) {
+
+    if (!$this->serviceUp()) {
+      return $form[$action];
+    }
+
     if ($action == 'validate') {
       $source = 'file_upload';
       $output = 'file_validate';
@@ -2020,6 +2028,33 @@ class RecordCleanerUI extends FormBase {
     }
 
     return $orgGroupRules;
+  }
+
+  /**
+   * Check the record cleaner service is up.
+   *
+   * Queues a message with details if the service is down.
+   *
+   * @return bool TRUE if the service is up else FALSE.
+   */
+  public function serviceUp():bool {
+    list($status, $message) = $this->apiHelper->summaryStatus();
+    switch ($status) {
+      case 'ok':
+        return TRUE;
+      case 'maintenance':
+        $message = $this->t("Sorry, the record cleaner service is currently
+        under maintenance. Please try again later. Additional
+        information: $message");
+        $this->messenger()->addWarning($message);
+        return FALSE;
+      case 'fail':
+        $message = $this->t("Sorry, the record cleaner service is
+        unexpectedly offline. Please try again later. If the problem
+        persits, please contact the service administrator.");
+        $this->messenger()->addError($message);
+        return FALSE;
+    }
   }
 
   /** {@inheritdoc}
