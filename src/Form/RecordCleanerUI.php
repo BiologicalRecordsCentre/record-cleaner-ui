@@ -1811,7 +1811,7 @@ class RecordCleanerUI extends FormBase {
       $columns[] = [
         'name' => 'Id',
         'function' => 'id',
-        'column' => 0,
+        'column' => NULL,
       ];
     }
 
@@ -1839,12 +1839,10 @@ class RecordCleanerUI extends FormBase {
     // If a vice county is supplied, it is checked.
     // When it is not supplied, return the primary VC for the grid square.
     if (!array_key_exists('vc', $uploadMappings)) {
-      // Set the column index as we will need it to pass through the value to
-      // the verification file.
       $columns[] = [
         'name' => 'VC Estimate',
         'function' => 'vc',
-        'column' => count($columns),
+        'column' => NULL,
       ];
     }
 
@@ -1879,20 +1877,35 @@ class RecordCleanerUI extends FormBase {
    *
    */
   public function getVerifyColumns(array $validateColumns) {
-    $columns = $validateColumns;
+    $columns = [];
+
+    // Copy all but last two columns from validate file.
+    for ($i = 0; $i < count($validateColumns) - 2; $i++) {
+      $columns[] = [
+        'name' => $validateColumns[$i]['name'],
+        'function' => $validateColumns[$i]['function'],
+        'column' => $i,
+      ];
+    }
 
     // Insert Id difficulty before result and messages.
-    $messages = array_pop($columns);
-    $result = array_pop($columns);
-
     $columns[] = [
       'name' => 'Id Difficulty',
       'function' => 'id_difficulty',
       'column' => NULL,
     ];
 
-    array_push($columns,$result);
-    array_push($columns,$messages);
+    $columns[] = [
+      'name' => 'Result',
+      'function' => 'result',
+      'column' => NULL,
+    ];
+
+    $columns[] = [
+      'name' => 'Messages',
+      'function' => 'messages',
+      'column' => NULL,
+    ];
 
     return $columns;
   }
