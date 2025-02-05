@@ -153,20 +153,17 @@ class FileHelper {
    * @return
    */
   public function submit($settings) {
-    $chunk_size = 100;
     $fileInUri = $settings['source']['uri'];
     $fileOutUri = $settings['output']['uri'];
     $fileInPath = $this->getFilePath($fileInUri);
     $fileOutPath = $this->getFilePath($fileOutUri);
 
-    $recordChunk = [];
-    $additionalChunk = [];
-    $messages = [];
-    $count = 0;
     $success = TRUE;
     $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
+    $messages = [];
 
     try {
+
       $fpOut = fopen($fileOutPath, 'w');
       if ($fpOut === FALSE) {
         $this->logger->error(
@@ -187,80 +184,122 @@ class FileHelper {
       $maxCol = count($settings['source']['columns']);
       // And skip header row.
       $reader->setReadFilter(new MyReadFilter(2, 0, 1, $maxCol));
-
-      // Skip empty rows.
       $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
       $worksheet = $spreadsheet->getActiveSheet();
 
-      // Loop through rest of the input file line by line.
-      foreach ($worksheet->getRowIterator() as $row) {
-        // Skip rows with cells but no data.
-        if ($row->isEmpty(
-          CellIterator::TREAT_EMPTY_STRING_AS_EMPTY_CELL |
-          CellIterator::TREAT_NULL_VALUE_AS_EMPTY_CELL)
-          ) {
-          continue;
-        }
-        // Extract data from $row into array.
-        $rowArray = [];
-        foreach ($row->getCellIterator() as $cell) {
-          $rowArray[] = $cell->getFormattedValue();
-        }
-        // Skip validation failures during verification.
-        if ($this->isValidationFailure($rowArray, $settings)) {
-          continue;
-        }
+      list($success, $counts, $messages) = $this->submitFileChunk($worksheet, 0, $settings, $fpOut);
 
-        // Keep count of lines processed.
-        $count++;
-        // Format data for submission to API.
-        $recordChunk[] = $this->buildRecordSubmission($rowArray, $count, $settings);
-        // Save additional data for output file.
-        list($id, $value) = $this->getAdditionalData($rowArray, $count, $settings);
-        $additionalChunk[$id] = $value;
-        // Send to the service in chunks.
-        if ($count % $chunk_size == 0) {
-          list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitChunk(
-            $recordChunk, $additionalChunk, $settings, $fpOut
-          );
-          // Accumulate results from chunks.
-          $success = $success && $chunkSuccess;
-          foreach ($chunkCounts as $key => $value) {
-            $counts[$key] += $value;
-          }
-          $messages = array_merge($messages, $chunkMessages);
-          // Reset chunk.
-          $recordChunk = [];
-          $additionalChunk = [];
-        }
-      }
-      // Validate the last partial chunk.
-      if ($count % $chunk_size != 0) {
-        list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitChunk(
-          $recordChunk, $additionalChunk, $settings, $fpOut
-        );
-        // Accumulate results from partial chunk.
-        $success = $success && $chunkSuccess;
-        foreach ($chunkCounts as $key => $value) {
-          $counts[$key] += $value;
-        }
-        $messages = array_merge($messages, $chunkMessages);
-      }
     }
     catch (\Exception $e) {
       $messages[] = $e->getMessage();
     }
     finally {
       fclose($fpOut);
-      $counts['total'] = $count;
       return [$success, $counts, $messages];
     }
   }
 
-  public function submitChunk($recordChunk, $additionalChunk, $settings, $fpOut) {
-    $messages = [];
-    $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
+  /**
+   * Break records from a file into chunks for the record cleaner service.
+   *
+   * May be called multiple times if the input file is large.
+   *
+   * @param object $worksheet A PHPSpreadsheet worksheet holding the lines.
+   * @param int $count Number of records already processed.
+   * @param array $settings The array of settings.
+   * @param resource $fpOut A file pointer to the output file.
+   *
+   * @return array An array of success, counts, and messages.
+   *   $success: Boolean indicating overall success. True if all records pass.
+   *   $counts: An array of counts of records that pass, warn, and fail.
+   *   $messages: An array of all messages returned by the service.
+   */
+  protected function submitFileChunk($worksheet, $count, $settings, $fpOut) {
+    $apiChunkSize = 100;
     $success = TRUE;
+    $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
+    $messages = [];
+    $recordChunk = [];
+    $additionalChunk = [];
+
+    // Loop through rest of the input file line by line.
+    foreach ($worksheet->getRowIterator() as $row) {
+      // Skip rows with cells but no data.
+      if ($row->isEmpty(
+        CellIterator::TREAT_EMPTY_STRING_AS_EMPTY_CELL |
+        CellIterator::TREAT_NULL_VALUE_AS_EMPTY_CELL)
+        ) {
+        continue;
+      }
+      // Extract data from $row into array.
+      $rowArray = [];
+      foreach ($row->getCellIterator() as $cell) {
+        $rowArray[] = $cell->getFormattedValue();
+      }
+      // Skip validation failures during verification.
+      if ($this->isValidationFailure($rowArray, $settings)) {
+        continue;
+      }
+
+      // Keep count of lines processed.
+      $count++;
+      // Format data for submission to API.
+      $recordChunk[] = $this->buildRecordSubmission($rowArray, $count, $settings);
+      // Save additional data for output file.
+      list($id, $value) = $this->getAdditionalData($rowArray, $count, $settings);
+      $additionalChunk[$id] = $value;
+      // Send to the service in chunks.
+      if ($count % $apiChunkSize == 0) {
+        list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitApiChunk(
+          $recordChunk, $additionalChunk, $settings, $fpOut
+        );
+        // Accumulate results from chunks.
+        $success = $success && $chunkSuccess;
+        foreach ($chunkCounts as $key => $value) {
+          $counts[$key] += $value;
+        }
+        $messages = array_merge($messages, $chunkMessages);
+        // Reset chunk.
+        $recordChunk = [];
+        $additionalChunk = [];
+      }
+    }
+    // Validate the last partial chunk.
+    if ($count % $apiChunkSize != 0) {
+      list($chunkSuccess, $chunkCounts, $chunkMessages) = $this->submitApiChunk(
+        $recordChunk, $additionalChunk, $settings, $fpOut
+      );
+      // Accumulate results from partial chunk.
+      $success = $success && $chunkSuccess;
+      foreach ($chunkCounts as $key => $value) {
+        $counts[$key] += $value;
+      }
+      $messages = array_merge($messages, $chunkMessages);
+    }
+
+    $counts['total'] = $count;
+
+    return [$success, $counts, $messages];
+  }
+
+  /**
+   * Send a chunk of records to the API.
+   *
+   * @param array $recordChunk An array of record data to send to the service.
+   * @param array $additionalChunk An array of additional record data to attach
+   * to to records returning from the service and saved to file.
+   * @param array $settings The array of settings.
+   * @param resource $fpOut A file pointer to the output file.
+   *
+   * @return array An array of success, counts, and messages.
+   *   $success: Boolean indicating overall success. True if all records pass.
+   *   $counts: An array of counts of records that pass, warn, and fail.
+   *   $messages: An array of all messages returned by the service.
+   */
+  protected function submitApiChunk($recordChunk, $additionalChunk, $settings, $fpOut) {
+    $success = TRUE;
+    $counts = ['fail' => 0, 'warn' => 0, 'pass' => 0];
+    $messages = [];
 
     // Submit chunk to relevant service.
     if ($settings['action'] == 'validate') {
