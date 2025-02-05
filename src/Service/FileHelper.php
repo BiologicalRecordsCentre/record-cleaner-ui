@@ -2,7 +2,9 @@
 
 /**
  * @file
- * Contains \Drupal\record_cleaner\Service\FileHelper.
+ * Contains
+ *   \Drupal\record_cleaner\Service\FileHelper and
+ *   \Drupal\record_cleaner\Service\MyReadFilter.
  */
 
 namespace Drupal\record_cleaner\Service;
@@ -18,11 +20,13 @@ use Exception;
 use PhpOffice\PhpSpreadsheet\Reader\IReader;
 
 /**
- * Filter to load a range of rows.
+ * Filter to load a block of rows and columns.
  */
-class MyRowFilter implements IReadFilter {
+class MyReadFilter implements IReadFilter {
   private $startRow;
   private $endRow;
+  private $startCol;
+  private $endCol;
 
   /**
    * Constructor for row filter.
@@ -31,56 +35,51 @@ class MyRowFilter implements IReadFilter {
    *   The first row to read.
    * @param int $endRow
    *   The last row to read. If 0, read to end.
-   */
-  public function __construct(int $startRow = 1, int $endRow = 0) {
-    $this->startRow = $startRow;
-    $this->endRow = $endRow;
-  }
-
-  public function readCell(string $col, int $row, string $sheet = ''): bool {
-    if ($row >= $this->startRow) {
-      if ($this->endRow > 0 && $row > $this->endRow) {
-        return FALSE;
-      }
-      return TRUE;
-    }
-    return FALSE;
-  }
-}
-
-/**
- * Filter to load a range of columns.
- */
-class MyColFilter implements IReadFilter {
-  private $startCol;
-  private $endCol;
-
-  /**
-   * Constructor for column filter.
-   *
    * @param int $startCol
    *   The first column to read.
    * @param int $endCol
    *   The last column to read. If 0, read to end.
    */
-  public function __construct(int $startCol = 1, int $endCol = 0) {
+  public function __construct(
+    int $startRow = 1,
+    int $endRow = 0,
+    int $startCol = 1,
+    int $endCol = 0,
+  ) {
+    $this->startRow = $startRow;
+    $this->endRow = $endRow;
     $this->startCol = $startCol;
     $this->endCol = $endCol;
   }
 
   public function readCell(string $col, int $row, string $sheet = ''): bool {
-    $col = Coordinate::columnIndexFromString($col);
-    if ($col >= $this->startCol) {
-      if ($this->endCol > 0 && $col > $this->endCol) {
+    if ($row >= $this->startRow) {
+      if ($this->endRow > 0 && $row > $this->endRow) {
+        // After endRow
         return FALSE;
       }
-      return TRUE;
+      // In row limits
+      $col = Coordinate::columnIndexFromString($col);
+      if ($col >= $this->startCol) {
+        if ($this->endCol > 0 && $col > $this->endCol) {
+          // After endCol
+          return FALSE;
+        }
+        // In col limits
+        return TRUE;
+      }
+      // Before startCol
+      return FALSE;
     }
+    // Before startRow
     return FALSE;
   }
 }
 
 
+/**
+ * Service providing functions to help process files for record cleaning.
+*/
 class FileHelper {
   public function __construct(
     protected LoggerChannelInterface $logger,
@@ -134,7 +133,7 @@ class FileHelper {
       [IOFactory::READER_CSV, IOFactory::READER_XLSX]
     );
     // Filter to first row.
-    $reader->setReadFilter(new MyRowFilter(1, 1));
+    $reader->setReadFilter(new MyReadFilter(1, 1));
     $spreadsheet = $reader->load($filePath);
     $worksheet = $spreadsheet->getActiveSheet();
     // Convert to 2D array
@@ -186,8 +185,8 @@ class FileHelper {
 
       // Filter to read no more columns than we need.
       $maxCol = count($settings['source']['columns']);
-      // Spreadsheets are 1-indexed.
-      $reader->setReadFilter(new MyColFilter(1, $maxCol));
+      // And skip header row.
+      $reader->setReadFilter(new MyReadFilter(2, 0, 1, $maxCol));
 
       // Skip empty rows.
       $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
@@ -195,10 +194,6 @@ class FileHelper {
 
       // Loop through rest of the input file line by line.
       foreach ($worksheet->getRowIterator() as $row) {
-        // Skip header row.
-        if ($row->getRowIndex() == 1) {
-          continue;
-        }
         // Skip rows with cells but no data.
         if ($row->isEmpty(
           CellIterator::TREAT_EMPTY_STRING_AS_EMPTY_CELL |
