@@ -9,6 +9,7 @@
 
 namespace Drupal\record_cleaner\Service;
 
+use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManager;
 use Drupal\record_cleaner\Service\ApiHelper;
@@ -81,6 +82,11 @@ class MyReadFilter implements IReadFilter {
  * Service providing functions to help process files for record cleaning.
 */
 class FileHelper {
+  use \Drupal\Core\StringTranslation\StringTranslationTrait;
+
+  // The class must be serializable as it is used for batch processing.
+  use DependencySerializationTrait;
+
   public function __construct(
     protected LoggerChannelInterface $logger,
     protected StreamWrapperManager $streamWrapperManager,
@@ -143,6 +149,127 @@ class FileHelper {
   }
 
   /**
+   * Main callback for batch processing.
+   *
+   * Reads a file in chunks with each chunk being performed as a new page
+   * request preventing server time outs or memory issues.
+   */
+  public function batchProcess(array $settings, array &$context): void {
+    $fileInUri = $settings['source']['uri'];
+    $fileOutUri = $settings['output']['uri'];
+    $fileInPath = $this->getFilePath($fileInUri);
+    $fileOutPath = $this->getFilePath($fileOutUri);
+    $file_chunk_size = 300;
+
+    $fpOut = fopen($fileOutPath, 'a');
+    if ($fpOut === FALSE) {
+      $this->logger->error(
+        'Unable to open output file, %fileOutPath.',
+        ['%fileOutPath' => $fileOutPath]
+      );
+    }
+
+    $reader = IOFactory::createReaderForFile($fileInPath,
+      [IOFactory::READER_CSV, IOFactory::READER_XLSX]
+    );
+
+    // Test if initial run.
+    if (!isset($context['sandbox']['row'])) {
+      // Do this on first batch only.
+
+      // Starting row for batch. Don't process header row.
+      $context['sandbox']['row'] = 2;
+
+      $context['results']['success'] = TRUE;
+      $context['results']['counts']['total'] = 0;
+      $context['results']['counts']['fail'] = 0;
+      $context['results']['counts']['warn'] = 0;
+      $context['results']['counts']['pass'] = 0;
+      $context['results']['messages'] = [];
+      $context['results']['action'] = $settings['action'];
+
+      // Determine the last row in the file.
+      $worksheetInfo = $reader->listWorksheetInfo($fileInPath);
+      $context['sandbox']['maxRow'] = $worksheetInfo[0]['totalRows'];
+      // Determine the name of the first worksheet. We ignore any others.
+      $context['sandbox']['worksheet'] = $worksheetInfo[0]['worksheetName'];
+      // TODO calculate file_chunk_size based on file size to get best
+      // compromise of speed and user feedback on progress bar.
+
+      // Determine the number of columns we need to read.
+      $context['sandbox']['maxCol'] = count($settings['source']['columns']);
+
+      // Write the header to the output file.
+      $row = $this->getOutputFileHeader($settings);
+      fputcsv($fpOut, $row);
+    }
+
+    // Do the following on all batches.
+
+    // Read a chunk of rows.
+    $startRow = $context['sandbox']['row'];
+    if ($startRow + $file_chunk_size - 1 > $context['sandbox']['maxRow']){
+      // Don't chunk beyond maxRow.
+      $file_chunk_size = $context['sandbox']['maxRow'] - $startRow + 1;
+    }
+    $endRow = $startRow + $file_chunk_size - 1;
+    $startCol = 1;
+    $endCol = count($settings['source']['columns']);
+    $reader->setReadFilter(
+      new MyReadFilter($startRow, $endRow, $startCol, $endCol)
+    );
+    $reader->setLoadSheetsOnly($context['sandbox']['worksheet']);
+    $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
+    $worksheet = $spreadsheet->getActiveSheet();
+
+    // Check all the records in the chunk
+    list($success, $counts, $messages) = $this->submitFileChunk(
+      $worksheet, $context['results']['counts']['total'], $settings, $fpOut);
+    // Update results.
+    $context['results']['success'] = $context['results']['success'] && $success;
+    // Accumulate counts of pass, warn, fail.
+    $context['results']['counts']['fail'] += $counts['fail'];
+    $context['results']['counts']['warn'] += $counts['warn'];
+    $context['results']['counts']['pass'] += $counts['pass'];
+    // Store total count. It is used for auto row numbering which is why it is
+    // not accumulated in the same way as other counts.
+    $context['results']['counts']['total'] = $counts['total'];
+    $context['results']['messages'] = array_merge(
+      $context['results']['messages'], $messages
+    );
+
+    fclose($fpOut);
+
+    // Ensure PHPSpreadsheet releases memory. Not sure this is needed but
+    // see https://github.com/PHPOffice/PhpSpreadsheet/issues/629
+    unset($spreadsheet);
+    unset($reader);
+
+    // Update the row pointer.
+    $context['sandbox']['row'] += $file_chunk_size;
+
+    // Update the progress messsage
+    $context['message'] = $this->t('Processed @progress out of @maxRow.', [
+      '@progress' => $context['sandbox']['row'] - 2,
+      '@maxRow' => $context['sandbox']['maxRow'] - 1,
+    ]);
+
+    // Update the finished parameter.
+    $context['finished'] = $context['sandbox']['row'] / $context['sandbox']['maxRow'];
+
+  }
+
+  /**
+   * Finished callback for batch processing.
+   */
+  public function batchFinished(bool $success, array $results, array $operations, string $elapsed): void {
+    $request = \Drupal::request();
+    $session = $request->getSession();
+    $name = "record_cleaner_{$results['action']}_result";
+    $session->set($name, $results);
+  }
+
+  /**
    * Send the contents of a file to the record cleaner service.
    *
    * Data from the source file, described in $settings['source']['mappings],
@@ -187,7 +314,8 @@ class FileHelper {
       $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
       $worksheet = $spreadsheet->getActiveSheet();
 
-      list($success, $counts, $messages) = $this->submitFileChunk($worksheet, 0, $settings, $fpOut);
+      list($success, $counts, $messages) = $this->submitFileChunk(
+        $worksheet, 0, $settings, $fpOut);
 
     }
     catch (\Exception $e) {
@@ -568,5 +696,54 @@ class FileHelper {
       return FALSE;
     }
   }
+
+  public function getMessageSummary($messages) {
+    $nrMessages = count($messages);
+    // Return nothing if there were no messages.
+    if ($nrMessages == 0) {
+      return [];
+    }
+
+    // Accumulate count of each type of message.
+    $counts = [];
+    foreach($messages as $message) {
+      if (substr($message, 0, 10) == 'Rules run:') {
+        // Don't count success messages.
+        continue;
+      }
+      if (array_key_exists($message, $counts)) {
+        $counts[$message] += 1;
+      }
+      else {
+        $counts[$message] = 1;
+      }
+    }
+
+    // Sort the counts by message.
+    ksort($counts);
+
+    // Generate a table of counts.
+    $rows = [];
+    foreach($counts as $message => $count) {
+      // Omit difficulty details.
+      // Difficulty messages have the form:
+      // {organisation}:{group}:difficulty:{id_difficulty}:{details}
+      $pos = strpos($message, ':difficulty:');
+      if ($pos !== FALSE) {
+        $length = $pos + strlen(':difficulty:n');
+        $message = substr($message, 0, $length);
+      }
+      $rows[] = [$message, $count];
+    }
+
+    $summary = [
+      '#type' => 'table',
+      '#header' => [t('Message'), $this->t('Count')],
+      '#rows' => $rows,
+      '#caption' => t('Message Summary'),
+    ];
+    return $summary;
+  }
+
 
 }

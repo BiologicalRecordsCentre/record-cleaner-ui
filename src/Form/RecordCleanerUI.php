@@ -2,9 +2,9 @@
 
 namespace Drupal\record_cleaner\Form;
 
-use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\NestedArray;
 use Drupal\Core\DependencyInjection\DependencySerializationTrait;
+use Drupal\Core\Batch\BatchBuilder;
 use Drupal\Core\Entity\EntityTypeManager;
 use Drupal\Core\File\FileUrlGenerator;
 use Drupal\Core\Form\FormBase;
@@ -12,7 +12,6 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\Session\AccountProxyInterface;
-use Drupal\Core\Url;
 use Drupal\file\Entity\File;
 use Drupal\record_cleaner\Service\ApiHelper;
 use Drupal\record_cleaner\Service\CookieHelper;
@@ -968,81 +967,24 @@ class RecordCleanerUI extends FormBase {
       ],
     ];
 
-    $form['validate'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'id' => 'record_cleaner_validate',
-      ],
-    ];
-
-    $form['validate']['output'] = [
-      '#type' => 'container',
-    ];
-
-    // Add a hidden input to control state of other items.
-    // There is no change event for this input but it is taken in to account
-    // when Ajax content is loaded and initial states are set.
-    // It has a value of 0 which is changed to pass or fail after validation.
-    $form['validate']['validate-result'] = [
-      '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('validate-result', '0'),
-    ];
-
-    $form['validate']['continue'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Continue to verification'),
-      '#description' => $this->t('Proceed with verification, dropping invalid
-      records.'),
-      '#default_value' => 0,
-      '#states' => ['visible' =>
-        ['input[name="validate-result"]' => ['value' => 'fail']]
-      ],
-    ];
-
-    // 'actions' are within the 'validate' container in order for the
-    // Next button to change state after the validation callback.
-    $form['validate']['actions'] = [
+    $form['actions'] = [
       '#type' => 'actions',
     ];
 
-    $form['validate']['actions']['back'] = [
+    $form['actions']['back'] = [
       '#type' => 'submit',
       '#value' => $this->t('Back'),
       '#submit' => ['::backFromValidateForm'],
     ];
 
-    $form['validate']['actions']['validate'] = [
-      '#type' => 'button',
-      '#button_type' => 'primary',
-      '#value' => $this->t('Validate'),
-      '#states' => ['disabled' =>
-        ['input[name="validate-result"]' => ['value' => 'pass']]
-      ],
-      '#ajax' => [
-        'callback' => '::validateCallback',
-        'wrapper' => 'record_cleaner_validate',
-        'progress' => [
-          'type' => 'throbber',
-          'message' => $this->t('Validating...'),
-        ],
-      ],
-    ];
-
-    $form['validate']['actions']['next'] = [
+    $form['actions']['validate'] = [
       '#type' => 'submit',
       '#button_type' => 'primary',
-      '#value' => $this->t('Next'),
-      '#states' => [
-        'enabled' => [
-          ['input[name="validate-result"]' => ['value' => 'pass']],
-          'or',
-          ['input[name="continue"]' => ['checked' => TRUE]]
-        ],
-      ],
-      '#submit' => ['::forwardFromValidateForm'],
+      '#value' => $this->t('Validate'),
+      '#submit' => ['::validate'],
     ];
 
-    $form['validate']['actions']['restart'] = [
+    $form['actions']['restart'] = [
       '#type' => 'submit',
       '#value' => $this->t('Start again'),
       '#submit' => ['::returnToStart'],
@@ -1057,14 +999,6 @@ class RecordCleanerUI extends FormBase {
     $this->moveBack($form_state);
   }
 
-  public function forwardFromValidateForm(array &$form, FormStateInterface $form_state) {
-    // Save result going forward.
-    $form_state->set('validate_values', [
-      'validate-result' => $form_state->getValue('validate-result'),
-    ]);
-    $this->moveForward($form_state);
-  }
-
   public function saveSettingsCallback(array &$form, FormStateInterface $form_state) {
     $settings = [
       'mapping' => $form_state->get('mapping_values'),
@@ -1076,325 +1010,30 @@ class RecordCleanerUI extends FormBase {
     return $form['storage'];
   }
 
-  public function validateCallback(array &$form, FormStateInterface $form_state) {
-    return $this->submitCallback($form, $form_state, 'validate');
-  }
-
-/********************* VERIFICATION FORM *********************/
-  public function buildVerifyForm(array $form, FormStateInterface $form_state) {
-
-    // Check for a file entity to store verified results.
-    if (!$form_state->has(['file_verify', 'uri'])) {
-      // Obtain the input file URI (private://record-cleaner/{userid}/{filename}).
-      $fileInUri =  $form_state->get(['file_upload', 'uri']);
-      // Create an output file URI by removing any extension and appending
-      // _verify.csv to the input URI.
-      $extPos = strrpos($fileInUri, '.', );
-      if ($extPos === false) {
-        // No extension.
-        $fileOutUri = $fileInUri . '_verify.csv';
-      }
-      else {
-        $fileOutUri = substr($fileInUri, 0, $extPos) . '_verify.csv';
-      }
-      // Create a file entity for the output file.
-      $fileOut = File::create([
-        'uri' => $fileOutUri,
-      ]);
-      $fileOut->setOwnerId($this->currentUser->id());
-      $fileOut->save();
-
-      // If the user is anonymous, allow them to see the file during the
-      // current session.
-      // Ref. \Drupal\file\FileAccessControlHandler::checkAccess().
-      if ($this->currentUser->isAnonymous()) {
-        $session = $this->getRequest()->getSession();
-        $allowed_temp_files = $session->get('anonymous_allowed_file_ids', []);
-        $allowed_temp_files[$fileOut->id()] = $fileOut->id();
-        $session->set('anonymous_allowed_file_ids', $allowed_temp_files);
-      }
-
-      // Save the output file information in the form_state storage as there
-      // are no inputs to propagate it in form_state values.
-      $form_state->set(['file_verify', 'fid'], $fileOut->id());
-      $form_state->set(['file_verify', 'uri'], $fileOutUri);
-    }
-
-    // All rules checkbox.
-    $allValue = $form_state->getValue('all', 1);
-    $form['all'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Use all rules'),
-      '#description' => $this->t('Uncheck to choose specific rules.'),
-      '#default_value' => $allValue,
-      '#ajax' => [
-        'callback' => '::changeAll',
-        'event' => 'change',
-        'wrapper' => 'organisations',
-      ]
-    ];
-
-    // Container for all org group rules.
-    // Tree ensures naming of elements is unique.
-    $form['rules'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Rules'),
-      '#description' => $this->t('Select the verification tests you want to run.'),
-      '#description_display' => 'before',
-      '#attributes' => [
-        'id' => 'organisations',
-        'class' => ['record-cleaner-organisation-container'],
-      ],
-      '#tree' => TRUE,
-    ];
-    // Attach CSS to format checkbox hierarchy.
-    $form['rules']['#attached']['library'][] = 'record_cleaner/record_cleaner';
-
-    // Get the organisation-group-rules from the service.
-    $orgGroupRules = $this->apiHelper->orgGroupRules();
-
-    // Hide organisation container if all rules is selected.
-    if ($allValue) {
-      $form['rules']['#attributes']['class'][] = 'hidden';
-    }
-
-    // We build a hierarchy of checkboxes for organisation, groups and rules.
-    // We use #ajax to deselect and children when the parent is unchecked.
-    foreach ($orgGroupRules as $organisation => $groupRules) {
-
-      // Create an id for the group container for Ajax to target.
-      // Id must not contain spaces or ajax fails.
-      $groupContainer = "$organisation groups";
-      $groupContainerId = Html::getId($groupContainer);
-
-      // Organisation checkbox.
-      $orgValue = $form_state->getValue(['rules', $organisation]);
-      $form['rules'][$organisation] = [
-        '#type' => 'checkbox',
-        '#title' => $organisation,
-        '#default_value' => $orgValue,
-        '#ajax' => [
-          'callback' => '::changeSelection',
-          'event' => 'change',
-          'wrapper' => $groupContainerId,
-        ]
-      ];
-
-      // Container for groups of organisation.
-      $form['rules'][$groupContainer] = [
-        '#type' => 'container',
-        '#attributes' => [
-          'id' => $groupContainerId,
-          'class' => ['record-cleaner-group-container'],
-        ],
-      ];
-
-      // Hide group container if organisation is deselected.
-      if (!$orgValue) {
-        $form['rules'][$groupContainer]['#attributes']['class'][] = 'hidden';
-      }
-
-      foreach ($groupRules as $group => $rules) {
-
-        // Create an id for the rule container for Ajax to target.
-        // Id must not contain spaces or ajax fails.
-        $ruleContainer = "$group rules";
-        $ruleContainerId = Html::getId($ruleContainer);
-
-        // Group checkbox.
-        $groupValue =  $form_state->getValue(
-          ['rules', $groupContainer, $group]
-        );
-        $form['rules'][$groupContainer][$group] = [
-          '#type' => 'checkbox',
-          '#title' => $group,
-          '#default_value' => $groupValue,
-          '#ajax' => [
-            'callback' => '::changeSelection',
-            'event' => 'change',
-            'wrapper' => $ruleContainerId,
-          ]
-        ];
-
-        // Container for rules of group.
-        $form['rules'][$groupContainer][$ruleContainer] = [
-          '#type' => 'container',
-          '#attributes' => [
-            'id' => $ruleContainerId,
-            'class' => ['record-cleaner-rule-container'],
-          ],
-        ];
-
-        // Hide rule container if organisation or group is deselected.
-        if (!$orgValue ||!$groupValue) {
-          $form['rules'][$groupContainer][$ruleContainer]['#attributes']['class'][] = 'hidden';
-        }
-
-        foreach ($rules as $rule) {
-          // Rule checkbox.
-          $form['rules'][$groupContainer][$ruleContainer][$rule] = [
-            '#type' => 'checkbox',
-            '#title' => $rule,
-            '#default_value' => $form_state->getValue(
-              ['rules', $groupContainer, $ruleContainer, $rule]
-            ),
-          ];
-        }
-      }
-    }
-
-    $form['verify'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'id' => 'record_cleaner_verify',
-      ],
-    ];
-
-    $form['verify']['output'] = [
-      '#type' => 'container',
-    ];
-
-    // Add a hidden input to control state of other items.
-    // There is no change event for this input but it is taken in to account
-    // when Ajax content is loaded and initial states are set.
-    // It has a value of 0 which is changed to pass or fail after verification.
-    $form['verify']['verify-result'] = [
-      '#type' => 'hidden',
-      '#default_value' => $form_state->getValue('verify-result', '0'),
-    ];
-
-    $form['actions'] = [
-      '#type' => 'actions',
-    ];
-
-    $form['actions']['back'] = [
-      '#type' => 'submit',
-      '#value' => $this->t('Back'),
-      '#submit' => ['::backFromVerifyForm'],
-    ];
-
-    $form['actions']['verify'] = [
-      '#type' => 'button',
-      '#button_type' => 'primary',
-      '#value' => $this->t('Verify'),
-      '#ajax' => [
-        'callback' => '::verifyCallback',
-        'wrapper' => 'record_cleaner_verify',
-        'progress' => [
-          'type' => 'throbber',
-          'message' => $this->t('Verifying...'),
-        ],
-      ],
-    ];
-
-    $form['actions']['restart'] = [
-      '#type' => 'submit',
-      '#value' => $this->t('Start again'),
-      '#submit' => ['::returnToStart'],
-    ];
-
-    return $form;
-  }
-
-  public function changeAll(array &$form, FormStateInterface $form_state) {
-    return $form['rules'];
-  }
-
-  public function changeSelection(array &$form, FormStateInterface $form_state) {
-    $triggeredElement = $form_state->getTriggeringElement();
-    $parents = $triggeredElement['#array_parents'];
-    $selection = $form_state->getValue($parents);
-    $values = $form_state->getValues();
-
-    if (count($parents) == 2) {
-      // Organisation in ['rules'][$organisation] changed.
-      $organisation = $parents[1];
-      $groupContainer = "$organisation groups";
-      $container = $form['rules'][$groupContainer];
-
-      // Check or clear all the descendant checkboxes.
-      $groupItems = $values['rules'][$groupContainer];
-      foreach($groupItems as $item => $value) {
-        if (is_int($value)) {
-          // Found a group checkbox
-          $container[$item]['#checked'] = $selection;
-        }
-        else {
-          // Found a rule container.
-          foreach(array_keys($value) as $rule) {
-            $container[$item][$rule]['#checked'] = $selection;
-          }
-          // Make it visible.
-          foreach($container[$item]['#attributes']['class'] as $idx => $class) {
-            if ($class == 'hidden') {
-              unset($container[$item]['#attributes']['class'][$idx]);
-            }
-          }
-        }
-      }
-    }
-    elseif (count($parents) == 3) {
-      // Group in ['rules'][$groupContainer][$group] changed.
-      $groupContainer = $parents[1];
-      $group = $parents[2];
-      $ruleContainer = "$group rules";
-      $container = $form['rules'][$groupContainer][$ruleContainer];
-
-      // Check or clear all the descendant checkboxes.
-      $rules = $values['rules'][$groupContainer][$ruleContainer];
-      foreach(array_keys($rules) as $rule) {
-        $container[$rule]['#checked'] = $selection;
-      }
-    }
-
-    return $container;
-  }
-
-  public function backFromVerifyForm(array &$form, FormStateInterface $form_state) {
-    // verify-result intentionally not saved when going back.
-    $form_state->set('verify_values', [
-      'rules' => $form_state->getValue('rules'),
-      'all' => $form_state->getValue('all'),
-    ]);
-    $this->moveBack($form_state);
-  }
-
-  public function verifyCallback(array &$form, FormStateInterface $form_state) {
-    return $this->submitCallback($form, $form_state, 'verify');
-  }
-
-/********************* UTILITY FUNCTIONS *********************/
-
   /**
-   * Callback function for AJAX.
-   *
-   * Rebuilds the mapping field selectors.
+   * Submit handler for Validate button.
    */
-  public function mappingChangeCallback(array &$form, FormStateInterface $form_state) {
-    return $form['mappings'];
-  }
+  public function validate(array &$form, FormStateInterface $form_state) {
 
-  public function submitCallback(
-    array &$form, FormStateInterface $form_state, $action
-  ) {
+    // Preserve form state values for use on validated form.
+    $request = $this->getRequest();
+    $session = $request->getSession();
+    $sess_state = [
+      'mapping_values' => $form_state->get('mapping_values'),
+      'organism_values' => $form_state->get('organism_values'),
+      'sref_values' => $form_state->get('sref_values'),
+      'additional_values' => $form_state->get('additional_values'),
+      'file_upload' => $form_state->get('file_upload'),
+      'file_validate' => $form_state->get('file_validate'),
+      'file_verify' => $form_state->get('file_verify'),
 
-    if (!$this->serviceUp()) {
-      return $form[$action];
-    }
-
-    if ($action == 'validate') {
-      $source = 'file_upload';
-      $output = 'file_validate';
-    }
-    else {
-      $source = 'file_validate';
-      $output = 'file_verify';
-    }
+    ];
+    $session->set('record_cleaner_state', $sess_state);
 
     // Bundle all settings needed for submitting to service.
-    $settings['action'] = $action;
-    $settings['source'] = $form_state->get($source);
-    $settings['output'] = $form_state->get($output);
+    $settings['action'] = 'validate';
+    $settings['source'] = $form_state->get('file_upload');
+    $settings['output'] = $form_state->get('file_validate');
     $settings['sref'] = [
       'type' => $form_state->get(['sref_values', 'sref_type']),
       'nr_coords' => $form_state->get(['sref_values', 'nr_coords']),
@@ -1413,53 +1052,27 @@ class RecordCleanerUI extends FormBase {
     }
     $settings['sref']['srid'] = $srid;
 
-    if ($action == 'verify') {
-      $settings['org_group_rules'] = $this->getOrgGroupRules($form_state);
-    }
+    // Set up batch process.
+    $batch = new BatchBuilder();
+    $batch->setTitle($this->t("Record Cleaner - Validating"));
+    $batch->setProgressMessage('Processing');
+    $batch->addOperation([$this->fileHelper, 'batchProcess'], [$settings]);
+    $batch->setFinishCallback([$this->fileHelper, 'batchFinished']);
 
-    // Send to the file helper service.
-    list($success, $counts, $messages) = $this->fileHelper->submit($settings);
+    batch_set($batch->toArray());
 
-    // Display results.
-    $result = $success ? 'pass' : 'fail';
+    $form_state->setRedirect('record_cleaner.validated');
+  }
 
-    $form[$action]['output']['heading'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'h3',
-      '#value' => ucfirst($action) . ' ' .  ucfirst($result) . 'ed',
-    ];
-    $form[$action]['output']['count'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'p',
-      '#value' => "{$counts['total']} records were checked. <br/>" .
-        "{$counts['pass']} records passed. <br/>" .
-        "{$counts['warn']} records had warnings. <br/>" .
-        "{$counts['fail']} records failed.",
-      ];
-    $form[$action]['output']['messages'] = $this->getMessageSummary($messages);
+/********************* UTILITY FUNCTIONS *********************/
 
-    // Display a link to the output file.
-    $url = $this->fileUrlGenerator->generateAbsoluteString(
-      $form_state->get([$output, 'uri'])
-    );
-    $link = [
-      '#type' => 'link',
-      '#title' => $this->t("$action file"),
-      '#url' => Url::fromUri($url),
-    ];
-    $link =$this->renderer->render($link);
-    $form[$action]['output']['link'] = [
-      '#type' => 'markup',
-      '#markup' => '<p>' . $this->t('Please download the ') . $link .
-        $this->t(' for more information. If you have errors, edit your data
-        and re-upload to complete the checking process.' . '</p>'),
-    ];
-
-    // Add the results to the form which has been built already.
-    $form_state->setValue("$action-result", $result);
-    $form[$action]["$action-result"]['#value'] = $result;
-
-    return $form[$action];
+  /**
+   * Callback function for AJAX.
+   *
+   * Rebuilds the mapping field selectors.
+   */
+  public function mappingChangeCallback(array &$form, FormStateInterface $form_state) {
+    return $form['mappings'];
   }
 
   public function moveForward(FormStateInterface $form_state) {
@@ -1723,54 +1336,6 @@ class RecordCleanerUI extends FormBase {
     return $summary;
   }
 
-  public function getMessageSummary($messages) {
-    $nrMessages = count($messages);
-    // Return nothing if there were no messages.
-    if ($nrMessages == 0) {
-      return [];
-    }
-
-    // Accumulate count of each type of message.
-    $counts = [];
-    foreach($messages as $message) {
-      if (substr($message, 0, 10) == 'Rules run:') {
-        // Don't count success messages.
-        continue;
-      }
-      if (array_key_exists($message, $counts)) {
-        $counts[$message] += 1;
-      }
-      else {
-        $counts[$message] = 1;
-      }
-    }
-
-    // Sort the counts by message.
-    ksort($counts);
-
-    // Generate a table of counts.
-    $rows = [];
-    foreach($counts as $message => $count) {
-      // Omit difficulty details.
-      // Difficulty messages have the form:
-      // {organisation}:{group}:difficulty:{id_difficulty}:{details}
-      $pos = strpos($message, ':difficulty:');
-      if ($pos !== FALSE) {
-        $length = $pos + strlen(':difficulty:n');
-        $message = substr($message, 0, $length);
-      }
-      $rows[] = [$message, $count];
-    }
-
-    $summary = [
-      '#type' => 'table',
-      '#header' => [$this->t('Message'), $this->t('Count')],
-      '#rows' => $rows,
-      '#caption' => $this->t('Message Summary'),
-    ];
-    return $summary;
-  }
-
   /**
    * Determine the columns in the validation output file.
    *
@@ -1986,49 +1551,6 @@ class RecordCleanerUI extends FormBase {
     return $mappings;
   }
 
-  public function getOrgGroupRules(FormStateInterface $form_state) {
-    // Construct org_group_rules_list required by API.
-
-    if ($form_state->getValue('all') == 1) {
-      // Early return if 'all' is checked.
-      return [];
-    }
-
-    $orgGroupRules = [];
-    $checkboxes = $form_state->getValue('rules');
-    // Build array of selected org group rules.
-    foreach($checkboxes as $organisation => $value) {
-      // Seek checked organisations.
-      if ($value == 1) {
-        $groupContainer = "$organisation groups";
-        foreach($checkboxes[$groupContainer] as $group => $value) {
-          // Seek checked groups.
-          if ($value == 1) {
-            $ruleContainer = "$group rules";
-            $rules = [];
-            foreach($checkboxes[$groupContainer][$ruleContainer] as $item => $value) {
-              // Seek checked rules.
-              if ($value == 1) {
-                // Convert '{Ruletype} Rule' to {ruletype}
-                $rule = strtolower(explode(' ', $item)[0]);
-                $rules[] = $rule;
-              }
-            }
-
-            if (count($rules) > 0) {
-              $orgGroupRules[] = [
-                'organisation' => $organisation,
-                'group' => $group,
-                'rules' => $rules,
-              ];
-            }
-          }
-        }
-      }
-    }
-
-    return $orgGroupRules;
-  }
 
   /**
    * Check the record cleaner service is up.
@@ -2062,4 +1584,5 @@ class RecordCleanerUI extends FormBase {
    * Implemented as required by FormBase but unused.
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {}
+
 }
