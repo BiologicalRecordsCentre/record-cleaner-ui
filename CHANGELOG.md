@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Improved efficiency of processing spreadsheets
+- Batch process files to prevent timeouts and show progress [#18](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/18)
 
 ### Fixed
 
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Error counting not correct with large file, [#15](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/15)
 - Error importing dates from Excel, [#13](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/13)
 - Error outputting additional fields, [#19](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/19)
+- Missing help text for 'Use all rules' checkbox, [#22](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/22)
 
 ### Removed
 

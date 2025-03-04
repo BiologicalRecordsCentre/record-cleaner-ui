@@ -146,7 +146,7 @@ class RecordCleanerValidated extends FormBase {
       '#type' => 'submit',
       '#button_type' => 'primary',
       '#value' => $this->t('Next'),
-//      '#disabled' => !$success,
+      // '#disabled' => !$success,
       '#states' => ['enabled' =>
         ['input[name="continue"]' => ['checked' => TRUE]]
       ],
@@ -223,7 +223,10 @@ class RecordCleanerValidated extends FormBase {
     $form['all'] = [
       '#type' => 'checkbox',
       '#title' => $this->t('Use all rules'),
-      '#description' => $this->t('Uncheck to choose specific rules.'),
+      '#description' => $this->t(
+        "Uncheck to limit rules to selected organisations and selected rule
+        types."
+      ),
       '#default_value' => $allValue,
       '#ajax' => [
         'callback' => '::changeAll',
