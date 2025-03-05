@@ -99,6 +99,10 @@ class ApiHelper {
     }
 
   }
+
+ /**
+  * Return the full service status as JSON.
+  */
   public function status() {
     try {
       $json = $this->request('GET');
@@ -106,6 +110,27 @@ class ApiHelper {
     }
     catch (RecordCleanerApiException $e) {
       return $e->getMessage();
+    }
+  }
+
+  /**
+   * Return a simple service status.
+   *
+   * @return array [ok|maintenance|fail, message]
+   */
+  public function summaryStatus() {
+    try {
+      $json = $this->request('GET');
+      $status = json_decode($json, TRUE);
+      if ($status['maintenance_mode'] === TRUE) {
+        return ['maintenance', $status['maintenance_message']];
+      }
+      else {
+        return ['ok', 'Service up.'];
+      }
+    }
+    catch (RecordCleanerApiException $e) {
+      return ['fail', $e->getMessage()];
     }
   }
 
@@ -179,11 +204,14 @@ class ApiHelper {
     return $this->request('POST', '/validate', $options, TRUE);
   }
 
-  public function verify($data) {
+  public function verify($data, $verbose = 1) {
     // Do validation in chunks to help manage memory and display progress.
     // Catch exceptions at the higher level in order to stop looping through
     // all the chunks if there is an error.
-    $options = ['json' => $data];
+    $options = [
+      'query' => ['verbose' => $verbose],
+      'json' => $data,
+    ];
     return $this->request('POST', '/verify', $options, TRUE);
   }
 }

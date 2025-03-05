@@ -38,7 +38,9 @@ class RecordCleanerController extends ControllerBase {
 
   /**
    * Returns an overview page.
-   * This callback is linked to the path /record_cleaner
+   * This callback is linked to the path /record_cleaner.
+   * You can create a normal Drupal page with a url alias of /record_cleaner
+   * and it will take precedence over this if you want to customise the content.
    */
   public function overview() {
     $output = '<p>';
@@ -78,7 +80,7 @@ class RecordCleanerController extends ControllerBase {
     $output .= '<b>' . $this->t("Observation date. ") . '</b>';
     $output .= $this->t("This can be a specific date, or a date range.
 <a href=:dates>Read more</a>.", [
-      ':dates' => Url::fromUri('https://biologicalrecordscentre.github.io/record-cleaner-service/valid_date')->toString()
+      ':dates' => Url::fromUri('https://biologicalrecordscentre.github.io/record-cleaner-service/validate/date.html')->toString()
 ]);
     $output .= '</li><li>';
     $output .= '<b>' . $this->t("Taxon version key or taxon name. ") . '</b>';

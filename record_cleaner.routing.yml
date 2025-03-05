@@ -26,6 +26,26 @@ record_cleaner.ui:
   options:
     no_cache: 'TRUE'
 
+record_cleaner.validated:
+  path: '/record_cleaner/validated'
+  defaults:
+    _form: '\Drupal\record_cleaner\Form\RecordCleanerValidated'
+    _title: 'Record Cleaner'
+  requirements:
+    _permission: 'use record cleaner'
+  options:
+    no_cache: 'TRUE'
+
+record_cleaner.verified:
+  path: '/record_cleaner/verified'
+  defaults:
+    _form: '\Drupal\record_cleaner\Form\RecordCleanerVerified'
+    _title: 'Record Cleaner'
+  requirements:
+    _permission: 'use record cleaner'
+  options:
+    no_cache: 'TRUE'
+
 record_cleaner.config:
   path: '/admin/config/services/record_cleaner'
   defaults:
