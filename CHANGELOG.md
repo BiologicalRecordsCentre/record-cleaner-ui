@@ -5,11 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0]
 
 ### Added
 
 - Message when service is down, [#17](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/17)
+- Option to omit ID difiiculty text, [#25](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/25)
 
 ### Changed
 

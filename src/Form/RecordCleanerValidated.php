@@ -219,6 +219,16 @@ class RecordCleanerValidated extends FormBase {
     }
 
     // All rules checkbox.
+    $form['no_difficulty'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Omit ID difficulty messages'),
+      '#description' => $this->t(
+        "Uncheck to output messages containing ID difficulty text."
+      ),
+      '#default_value' => $form_state->getValue('no_difficulty', 1),
+    ];
+
+    // All rules checkbox.
     $allValue = $form_state->getValue('all', 1);
     $form['all'] = [
       '#type' => 'checkbox',
@@ -446,6 +456,7 @@ class RecordCleanerValidated extends FormBase {
     $form_state->set('verify_values', [
       'rules' => $form_state->getValue('rules'),
       'all' => $form_state->getValue('all'),
+      'no_difficulty' => $form_state->getValue('no_difficulty'),
     ]);
     $this->moveBack($form_state);
   }
@@ -482,6 +493,13 @@ class RecordCleanerValidated extends FormBase {
     $settings['sref']['srid'] = $srid;
 
     $settings['org_group_rules'] = $this->getOrgGroupRules($form_state);
+
+    if ($form_state->getValue('no_difficulty') == 1) {
+      $settings['verbose'] = 0;
+    }
+    else {
+      $settings['verbose'] = 1;
+    }
 
     $batch = new BatchBuilder();
     $batch->setTitle($this->t("Record Cleaner - Verifying"));

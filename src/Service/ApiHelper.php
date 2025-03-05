@@ -204,11 +204,14 @@ class ApiHelper {
     return $this->request('POST', '/validate', $options, TRUE);
   }
 
-  public function verify($data) {
+  public function verify($data, $verbose = 1) {
     // Do validation in chunks to help manage memory and display progress.
     // Catch exceptions at the higher level in order to stop looping through
     // all the chunks if there is an error.
-    $options = ['json' => $data];
+    $options = [
+      'query' => ['verbose' => $verbose],
+      'json' => $data,
+    ];
     return $this->request('POST', '/verify', $options, TRUE);
   }
 }

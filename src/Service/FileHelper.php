@@ -439,7 +439,7 @@ class FileHelper {
         'org_group_rules_list' => $settings['org_group_rules'],
         'records' => $recordChunk,
       ];
-      $json = $this->api->verify($pack);
+      $json = $this->api->verify($pack, $settings['verbose']);
       $records = json_decode($json, TRUE)['records'];
     }
 
