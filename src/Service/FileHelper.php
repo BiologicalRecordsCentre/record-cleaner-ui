@@ -717,6 +717,14 @@ class FileHelper {
         // Don't count success messages.
         continue;
       }
+
+      // Ignore date range in phenology messages.
+      $abbreviations = [
+        "Date is CLOSE TO the expected period",
+        "Date is FAR FROM the expected period",
+      ];
+      $message = $this->abbreviateMessage($message, $abbreviations);
+
       if (array_key_exists($message, $counts)) {
         $counts[$message] += 1;
       }
@@ -751,5 +759,26 @@ class FileHelper {
     return $summary;
   }
 
+  /**
+   * Abbreviate a message by removing the ending.
+   *
+   * If any of the abbreviations is found in the message then the message is
+   * truncated after the abbreviation.
+   *
+   * @param $message string The full message to abbreviate.
+   * @param $abbreviation [string] The end of the message to retain.
+   *
+   * @return string The abbreviated message or the original message if the
+   *   abbreviation is not found.
+   */
+  public function abbreviateMessage($message, $abbreviations) {
+    foreach ($abbreviations as $abbreviation) {
+      if ($pos = strpos($message, $abbreviation)) {
+        // Anything following $abbreviation is removed.
+        return substr($message, 0, $pos) . $abbreviation . '.';
+      }
+    }
+    return $message;
+  }
 
 }
