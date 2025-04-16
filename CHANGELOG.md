@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+
+## [1.3.0]
+
+### Changed
+
+- Verification summary groups phenology failures without date range.
+
+### Fixed
+
+- Exception handling when batch processing.
+- Incorrect date formats when importing from Excel, [#27](https://github.com/BiologicalRecordsCentre/record-cleaner-ui/issues/27)
+
+
 ## [1.2.0]
 
 ### Added

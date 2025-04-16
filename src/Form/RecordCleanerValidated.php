@@ -84,10 +84,25 @@ class RecordCleanerValidated extends FormBase {
     $request = $this->getRequest();
     $session = $request->getSession();
     $validateResult = $session->get('record_cleaner_validate_result');
+
+    // Handle errors.
+    $error = '';
     if (!$validateResult) {
+      // No results in session.
+      $error = $this->t("There are no validation results to display.");
+    }
+    elseif (array_key_exists('error', $validateResult)) {
+      // An exception occurred in batch processing.
+      $error =  $this->t("There was an error processing the file. If the problem
+        persists, please contact the administrator. {$validateResult['error']}");
+    }
+    if ($error) {
+      // Return to start
+      $this->messenger()->addError($error);
       $url = Url::fromRoute('record_cleaner.ui')->toString();
       return new RedirectResponse($url);
     }
+
     $success = $validateResult['success'];
     $counts = $validateResult['counts'];
     $messages = $validateResult['messages'];

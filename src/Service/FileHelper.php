@@ -17,8 +17,8 @@ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Worksheet\CellIterator;
-use Exception;
 use PhpOffice\PhpSpreadsheet\Reader\IReader;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
 
 /**
  * Filter to load a block of rows and columns.
@@ -155,107 +155,114 @@ class FileHelper {
    * request preventing server time outs or memory issues.
    */
   public function batchProcess(array $settings, array &$context): void {
-    $fileInUri = $settings['source']['uri'];
-    $fileOutUri = $settings['output']['uri'];
-    $fileInPath = $this->getFilePath($fileInUri);
-    $fileOutPath = $this->getFilePath($fileOutUri);
-    $file_chunk_size = 300;
+    try {
+      $fileInUri = $settings['source']['uri'];
+      $fileOutUri = $settings['output']['uri'];
+      $fileInPath = $this->getFilePath($fileInUri);
+      $fileOutPath = $this->getFilePath($fileOutUri);
+      $file_chunk_size = 300;
 
-    $fpOut = fopen($fileOutPath, 'a');
-    if ($fpOut === FALSE) {
-      $this->logger->error(
-        'Unable to open output file, %fileOutPath.',
-        ['%fileOutPath' => $fileOutPath]
+      $fpOut = fopen($fileOutPath, 'a');
+      if ($fpOut === FALSE) {
+        throw new \Exception("Unable to open output file, $fileOutPath.");
+      }
+
+      $reader = IOFactory::createReaderForFile($fileInPath,
+        [IOFactory::READER_CSV, IOFactory::READER_XLSX]
       );
+
+      // Test if initial run.
+      if (!isset($context['sandbox']['row'])) {
+        // Do this on first batch only.
+
+        // Starting row for batch. Don't process header row.
+        $context['sandbox']['row'] = 2;
+
+        $context['results']['success'] = TRUE;
+        $context['results']['counts']['total'] = 0;
+        $context['results']['counts']['fail'] = 0;
+        $context['results']['counts']['warn'] = 0;
+        $context['results']['counts']['pass'] = 0;
+        $context['results']['messages'] = [];
+        $context['results']['action'] = $settings['action'];
+
+        // Determine the last row in the file.
+        $worksheetInfo = $reader->listWorksheetInfo($fileInPath);
+        $context['sandbox']['maxRow'] = $worksheetInfo[0]['totalRows'];
+        // Determine the name of the first worksheet. We ignore any others.
+        $context['sandbox']['worksheet'] = $worksheetInfo[0]['worksheetName'];
+        // TODO calculate file_chunk_size based on file size to get best
+        // compromise of speed and user feedback on progress bar.
+
+        // Determine the number of columns we need to read.
+        $context['sandbox']['maxCol'] = count($settings['source']['columns']);
+
+        // Write the header to the output file.
+        $row = $this->getOutputFileHeader($settings);
+        fputcsv($fpOut, $row);
+      }
+
+      // Do the following on all batches.
+
+      // Read a chunk of rows.
+      $startRow = $context['sandbox']['row'];
+      if ($startRow + $file_chunk_size - 1 > $context['sandbox']['maxRow']){
+        // Don't chunk beyond maxRow.
+        $file_chunk_size = $context['sandbox']['maxRow'] - $startRow + 1;
+      }
+      $endRow = $startRow + $file_chunk_size - 1;
+      $startCol = 1;
+      $endCol = count($settings['source']['columns']);
+      $reader->setReadFilter(
+        new MyReadFilter($startRow, $endRow, $startCol, $endCol)
+      );
+      $reader->setLoadSheetsOnly($context['sandbox']['worksheet']);
+      $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
+      $worksheet = $spreadsheet->getActiveSheet();
+
+      // Check all the records in the chunk
+      list($success, $counts, $messages) = $this->submitFileChunk(
+        $worksheet, $context['results']['counts']['total'], $settings, $fpOut);
+      // Update results.
+      $context['results']['success'] = $context['results']['success'] && $success;
+      // Accumulate counts of pass, warn, fail.
+      $context['results']['counts']['fail'] += $counts['fail'];
+      $context['results']['counts']['warn'] += $counts['warn'];
+      $context['results']['counts']['pass'] += $counts['pass'];
+      // Store total count. It is used for auto row numbering which is why it is
+      // not accumulated in the same way as other counts.
+      $context['results']['counts']['total'] = $counts['total'];
+      $context['results']['messages'] = array_merge(
+        $context['results']['messages'], $messages
+      );
+
+      fclose($fpOut);
+
+      // Ensure PHPSpreadsheet releases memory. Not sure this is needed but
+      // see https://github.com/PHPOffice/PhpSpreadsheet/issues/629
+      unset($spreadsheet);
+      unset($reader);
+
+      // Update the row pointer.
+      $context['sandbox']['row'] += $file_chunk_size;
+
+      // Update the progress messsage
+      $context['message'] = $this->t('Processed @progress out of @maxRow.', [
+        '@progress' => $context['sandbox']['row'] - 2,
+        '@maxRow' => $context['sandbox']['maxRow'] - 1,
+      ]);
+
+      // Update the finished parameter.
+      $context['finished'] = $context['sandbox']['row'] / $context['sandbox']['maxRow'];
+
     }
-
-    $reader = IOFactory::createReaderForFile($fileInPath,
-      [IOFactory::READER_CSV, IOFactory::READER_XLSX]
-    );
-
-    // Test if initial run.
-    if (!isset($context['sandbox']['row'])) {
-      // Do this on first batch only.
-
-      // Starting row for batch. Don't process header row.
-      $context['sandbox']['row'] = 2;
-
-      $context['results']['success'] = TRUE;
-      $context['results']['counts']['total'] = 0;
-      $context['results']['counts']['fail'] = 0;
-      $context['results']['counts']['warn'] = 0;
-      $context['results']['counts']['pass'] = 0;
-      $context['results']['messages'] = [];
-      $context['results']['action'] = $settings['action'];
-
-      // Determine the last row in the file.
-      $worksheetInfo = $reader->listWorksheetInfo($fileInPath);
-      $context['sandbox']['maxRow'] = $worksheetInfo[0]['totalRows'];
-      // Determine the name of the first worksheet. We ignore any others.
-      $context['sandbox']['worksheet'] = $worksheetInfo[0]['worksheetName'];
-      // TODO calculate file_chunk_size based on file size to get best
-      // compromise of speed and user feedback on progress bar.
-
-      // Determine the number of columns we need to read.
-      $context['sandbox']['maxCol'] = count($settings['source']['columns']);
-
-      // Write the header to the output file.
-      $row = $this->getOutputFileHeader($settings);
-      fputcsv($fpOut, $row);
+    catch (\Exception $e) {
+      // Setting finished to 1 terminates the batch processing.
+      $context['finished'] = 1;
+      $context['message'] = "An error has occurred.";
+      $this->logger->error($e->getMessage());
+      $context['results']['error'] = $e->getMessage();
     }
-
-    // Do the following on all batches.
-
-    // Read a chunk of rows.
-    $startRow = $context['sandbox']['row'];
-    if ($startRow + $file_chunk_size - 1 > $context['sandbox']['maxRow']){
-      // Don't chunk beyond maxRow.
-      $file_chunk_size = $context['sandbox']['maxRow'] - $startRow + 1;
-    }
-    $endRow = $startRow + $file_chunk_size - 1;
-    $startCol = 1;
-    $endCol = count($settings['source']['columns']);
-    $reader->setReadFilter(
-      new MyReadFilter($startRow, $endRow, $startCol, $endCol)
-    );
-    $reader->setLoadSheetsOnly($context['sandbox']['worksheet']);
-    $spreadsheet = $reader->load($fileInPath, IReader::IGNORE_ROWS_WITH_NO_CELLS);
-    $worksheet = $spreadsheet->getActiveSheet();
-
-    // Check all the records in the chunk
-    list($success, $counts, $messages) = $this->submitFileChunk(
-      $worksheet, $context['results']['counts']['total'], $settings, $fpOut);
-    // Update results.
-    $context['results']['success'] = $context['results']['success'] && $success;
-    // Accumulate counts of pass, warn, fail.
-    $context['results']['counts']['fail'] += $counts['fail'];
-    $context['results']['counts']['warn'] += $counts['warn'];
-    $context['results']['counts']['pass'] += $counts['pass'];
-    // Store total count. It is used for auto row numbering which is why it is
-    // not accumulated in the same way as other counts.
-    $context['results']['counts']['total'] = $counts['total'];
-    $context['results']['messages'] = array_merge(
-      $context['results']['messages'], $messages
-    );
-
-    fclose($fpOut);
-
-    // Ensure PHPSpreadsheet releases memory. Not sure this is needed but
-    // see https://github.com/PHPOffice/PhpSpreadsheet/issues/629
-    unset($spreadsheet);
-    unset($reader);
-
-    // Update the row pointer.
-    $context['sandbox']['row'] += $file_chunk_size;
-
-    // Update the progress messsage
-    $context['message'] = $this->t('Processed @progress out of @maxRow.', [
-      '@progress' => $context['sandbox']['row'] - 2,
-      '@maxRow' => $context['sandbox']['maxRow'] - 1,
-    ]);
-
-    // Update the finished parameter.
-    $context['finished'] = $context['sandbox']['row'] / $context['sandbox']['maxRow'];
 
   }
 
@@ -297,7 +304,7 @@ class FileHelper {
           'Unable to open output file, %fileOutPath.',
           ['%fileOutPath' => $fileOutPath]
         );
-        throw new Exception("Unable to open output file, $fileOutPath.");
+        throw new \Exception("Unable to open output file, $fileOutPath.");
       }
       // Write the header to the output file.
       $row = $this->getOutputFileHeader($settings);
@@ -362,7 +369,16 @@ class FileHelper {
       // Extract data from $row into array.
       $rowArray = [];
       foreach ($row->getCellIterator() as $cell) {
-        $rowArray[] = $cell->getFormattedValue();
+        // Ensure dates are formatted as dd/mm/yyyy.
+        // PhpSpreadsheet is not locale-aware and formats dates in American
+        // otherwise. https://github.com/PHPOffice/PhpSpreadsheet/issues/2832
+        if (Date::isDateTime($cell)) {
+          $dateObj = Date::excelToDateTimeObject($cell->getValue());
+          $rowArray[] = $dateObj->format('d/m/Y');
+        }
+        else {
+          $rowArray[] = $cell->getFormattedValue();
+        }
       }
       // Skip validation failures during verification.
       if ($this->isValidationFailure($rowArray, $settings)) {
@@ -711,6 +727,14 @@ class FileHelper {
         // Don't count success messages.
         continue;
       }
+
+      // Ignore date range in phenology messages.
+      $abbreviations = [
+        "Date is CLOSE TO the expected period",
+        "Date is FAR FROM the expected period",
+      ];
+      $message = $this->abbreviateMessage($message, $abbreviations);
+
       if (array_key_exists($message, $counts)) {
         $counts[$message] += 1;
       }
@@ -745,5 +769,26 @@ class FileHelper {
     return $summary;
   }
 
+  /**
+   * Abbreviate a message by removing the ending.
+   *
+   * If any of the abbreviations is found in the message then the message is
+   * truncated after the abbreviation.
+   *
+   * @param $message string The full message to abbreviate.
+   * @param $abbreviation [string] The end of the message to retain.
+   *
+   * @return string The abbreviated message or the original message if the
+   *   abbreviation is not found.
+   */
+  public function abbreviateMessage($message, $abbreviations) {
+    foreach ($abbreviations as $abbreviation) {
+      if ($pos = strpos($message, $abbreviation)) {
+        // Anything following $abbreviation is removed.
+        return substr($message, 0, $pos) . $abbreviation . '.';
+      }
+    }
+    return $message;
+  }
 
 }
