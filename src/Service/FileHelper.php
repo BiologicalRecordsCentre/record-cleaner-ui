@@ -18,6 +18,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Worksheet\CellIterator;
 use PhpOffice\PhpSpreadsheet\Reader\IReader;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
 
 /**
  * Filter to load a block of rows and columns.
@@ -368,7 +369,16 @@ class FileHelper {
       // Extract data from $row into array.
       $rowArray = [];
       foreach ($row->getCellIterator() as $cell) {
-        $rowArray[] = $cell->getFormattedValue();
+        // Ensure dates are formatted as dd/mm/yyyy.
+        // PhpSpreadsheet is not locale-aware and formats dates in American
+        // otherwise. https://github.com/PHPOffice/PhpSpreadsheet/issues/2832
+        if (Date::isDateTime($cell)) {
+          $dateObj = Date::excelToDateTimeObject($cell->getValue());
+          $rowArray[] = $dateObj->format('d/m/Y');
+        }
+        else {
+          $rowArray[] = $cell->getFormattedValue();
+        }
       }
       // Skip validation failures during verification.
       if ($this->isValidationFailure($rowArray, $settings)) {
