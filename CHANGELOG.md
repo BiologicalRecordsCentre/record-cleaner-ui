@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Reduced file_chunk_size from 300 to 200.
+- file_chunk_size from 300 to 200.
+- verification output csv to include rules_commit and rules_update_time.
 
 
 ## [1.3.0]

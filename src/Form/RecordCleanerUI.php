@@ -1480,6 +1480,19 @@ class RecordCleanerUI extends FormBase {
       'column' => NULL,
     ];
 
+    // Append rules metadata.
+    $columns[] = [
+      'name' => 'Rules Commit',
+      'function' => 'rules_commit',
+      'column' => NULL,
+    ];
+
+    $columns[] = [
+      'name' => 'Rules Update Time',
+      'function' => 'rules_update_time',
+      'column' => NULL,
+    ];
+
     return $columns;
   }
 

@@ -449,6 +449,7 @@ class FileHelper {
     if ($settings['action'] == 'validate') {
       $json = $this->api->validate($recordChunk);
       $records = json_decode($json, TRUE);
+      $meta = [];
     }
     else {
       $pack = [
@@ -456,7 +457,10 @@ class FileHelper {
         'records' => $recordChunk,
       ];
       $json = $this->api->verify($pack, $settings['verbose']);
-      $records = json_decode($json, TRUE)['records'];
+      $response = json_decode($json, TRUE);
+      $records = $response['records'];
+      $meta['rules_commit'] = $response['rules_commit'];
+      $meta['rules_update_time'] = $response['rules_update_time'];
     }
 
     // Loop through results accumulating messages and outputting to file.
@@ -469,7 +473,7 @@ class FileHelper {
       $idValue = $record['id'];
       $additional = $additionalChunk[$idValue];
 
-      $row = $this->getOutputFileRow($record, $additional, $settings);
+      $row = $this->getOutputFileRow($record, $additional, $settings, $meta);
       fputcsv($fpOut, $row);
     }
     return [$success, $counts, $messages];
@@ -508,12 +512,14 @@ class FileHelper {
   }
 
   /**
-   * Convert a record from the validation service to a CSV row.
+   * Convert a record from the validation/verification service to a CSV row.
    *
-   * @param $record  A response from the validation service.
-   * @param $settings
+   * @param $record  A record from the validation/verification service.
+   * @param $additional The additional data for the record.
+   * @param $settings Settings for the validation/verification.
+   * @param $meta Metadata from the validation/verification service.
    */
-  public function getOutputFileRow($record, $additional, $settings) {
+  public function getOutputFileRow($record, $additional, $settings, $meta) {
     $row = [];
     foreach($settings['output']['columns'] as $colNum => $column) {
 
@@ -589,6 +595,14 @@ class FileHelper {
               // During verification, vc is passed through in additional data.
               $row[] = $additional[$colNum];
             }
+            break;
+
+          case 'rules_commit':
+            $row[] = $meta['rules_commit'];
+            break;
+
+          case 'rules_update_time':
+            $row[] = $meta['rules_update_time'];
             break;
 
         default:
