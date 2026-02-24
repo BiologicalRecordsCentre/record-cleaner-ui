@@ -160,7 +160,7 @@ class FileHelper {
       $fileOutUri = $settings['output']['uri'];
       $fileInPath = $this->getFilePath($fileInUri);
       $fileOutPath = $this->getFilePath($fileOutUri);
-      $file_chunk_size = 300;
+      $file_chunk_size = 200;
 
       $fpOut = fopen($fileOutPath, 'a');
       if ($fpOut === FALSE) {
