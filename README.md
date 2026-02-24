@@ -65,7 +65,7 @@ you need to add them to the same network as follows:
  - `docker network connect rc-bridge <service-container-name>`
  - `docker network connect rc-bridge <drupal-container-name>`
 
-Currently the service container is calling itself `recordcleanerservice-dev`
+Currently the service container is calling itself `recordcleanerservice-application`
 and the drupal container is `ddev-record-cleaner-web`.
 
 The base url you need to set in the module is then
