@@ -3,7 +3,7 @@ type: module
 description: Provides a user interface to the record cleaner web service.
 package: Custom
 
-core_version_requirement: ^9.4 || ^10
+core_version_requirement: ^9.4 || ^10 || ^11
 
 version: 1.3.0
 project: 'record_cleaner'
