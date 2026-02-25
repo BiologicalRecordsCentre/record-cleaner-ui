@@ -149,7 +149,7 @@ class RecordCleanerUI extends FormBase {
 
   public function buildUploadForm(array $form, FormStateInterface $form_state) {
     $form['file_upload'] = [
-      '#type' => 'managed_file',
+      '#type' => 'record_cleaner_managed_file',
       '#title' => $this->t('Data File'),
       '#description' => $this->t("Please select a CSV or Excel file containing
       your data. The first row must be a header with the column names. The file
@@ -169,8 +169,13 @@ class RecordCleanerUI extends FormBase {
       ],
       '#upload_location' => 'private://record-cleaner/' .
         $this->currentUser->id(),
+      '#custom_ajax' => [
+          'callback' => '::fileUploadCallback',
+          'wrapper' => 'record_cleaner_actions',
+      ],
     ];
 
+    // If there are saved settings in a cookie, provide option to delete them.
     if ($this->cookieHelper->hasCookie()) {
       $form['storage'] = [
         '#type' => 'container',
@@ -200,12 +205,20 @@ class RecordCleanerUI extends FormBase {
 
     $form['actions'] = [
       '#type' => 'actions',
+      '#attributes' => [
+        'id' => 'record_cleaner_actions',
+      ],
     ];
+
+    // Enable the next button by Ajax when a file has been uploaded.
+    $file = $form_state->getValue('file_upload');
+    $not_uploaded = empty($file);
 
     $form['actions']['next'] = [
       '#type' => 'submit',
       '#button_type' => 'primary',
       '#value' => $this->t('Next'),
+      '#disabled' => $not_uploaded,
       '#submit' => ['::forwardFromUploadForm'],
       //'#validate' => ['::validateUploadForm'],
     ];
@@ -218,6 +231,10 @@ class RecordCleanerUI extends FormBase {
     unset($form['storage']['info']);
     unset($form['storage']['delete']);
     return $form['storage'];
+  }
+
+  public function fileUploadCallback(array &$form, FormStateInterface $form_state) {
+    return $form['actions'];
   }
 
   public function forwardFromUploadForm(array &$form, FormStateInterface $form_state) {
