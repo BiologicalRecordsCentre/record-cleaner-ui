@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - file_chunk_size from 300 to 200.
 - verification output csv to include rules_commit and rules_update_time.
+- next button to disabled until file upload is complete.
 
 
 ## [1.3.0]
