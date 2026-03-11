@@ -69,4 +69,4 @@ Currently the service container is calling itself `recordcleanerservice-applicat
 and the drupal container is `ddev-record-cleaner-web`.
 
 The base url you need to set in the module is then
-`http://recordcleanerservice-dev:8000/`
+`http://recordcleanerservice-application:8000/`
